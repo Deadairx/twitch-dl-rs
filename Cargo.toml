@@ -6,9 +6,9 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.40", features = ["derive"] }
 regex = "1.11.1"
-reqwest = "0.12.20"
-serde = "1.0.219"
+reqwest = { version = "0.12.20", features = ["json"] }
+serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 thiserror = "2.0.12"
-tokio = "1.45.1"
+tokio = { version = "1.45.1", features = ["fs", "rt-multi-thread", "macros"] }
 urlencoding = "2.1.3"
