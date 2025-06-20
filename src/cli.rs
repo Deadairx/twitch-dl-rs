@@ -1,4 +1,4 @@
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{Arg, Command};
 
 pub struct Cli {
     pub command: String,
@@ -7,23 +7,22 @@ pub struct Cli {
 }
 
 pub fn parse_args() -> Cli {
-    let matches = App::new("twitch-dl-rs")
+    let matches = Command::new("twitch-dl-rs")
         .version("0.1.0")
         .about("Download a video from Twitch")
         .subcommand(
-            SubCommand::with_name("download")
+            Command::new("download")
                 .about("Download a Twitch video")
                 .arg(
-                    Arg::with_name("video-link")
+                    Arg::new("video-link")
                         .help("The Twitch video link to download")
                         .required(true)
                         .index(1),
                 )
                 .arg(
-                    Arg::with_name("auth-token")
-                        .short("a")
+                    Arg::new("auth-token")
+                        .short('a')
                         .long("auth-token")
-                        .takes_value(true)
                         .help("Authentication token for subscriber-only VODs"),
                 ),
         )
@@ -32,8 +31,8 @@ pub fn parse_args() -> Cli {
     if let Some(download_matches) = matches.subcommand_matches("download") {
         Cli {
             command: "download".to_string(),
-            video_link: download_matches.value_of("video-link").map(|s| s.to_string()),
-            auth_token: download_matches.value_of("auth-token").map(|s| s.to_string()),
+            video_link: download_matches.get_one::<String>("video-link").cloned(),
+            auth_token: download_matches.get_one::<String>("auth-token").cloned(),
         }
     } else {
         Cli {
