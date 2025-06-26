@@ -17,15 +17,18 @@ async fn main() {
                 }
             };
             let auth_token = match &cli.auth_token {
-                Some(token) => token,
-                None => {
-                    eprintln!("No auth token provided. This is required for VOD access.");
-                    return;
-                }
+                Some(token) => token.clone(),
+                None => match std::env::var("TWITCH_DL_AUTH") {
+                    Ok(env_token) => env_token,
+                    Err(_) => {
+                        eprintln!("No auth token provided. This is required for VOD access.\nProvide it via --auth-token or the TWITCH_DL_AUTH environment variable.");
+                        return;
+                    }
+                },
             };
             match twitch::extract_video_id(video_link) {
                 Ok(video_id) => {
-                    match twitch::fetch_vod_access_token(&video_id, auth_token).await {
+                    match twitch::fetch_vod_access_token(&video_id, &auth_token).await {
                         Ok((token, sig)) => {
                             let m3u8_url = twitch::get_m3u8_url_with_token_sig(&video_id, &token, &sig);
                             println!("m3u8 URL: {}", m3u8_url);
