@@ -3,6 +3,9 @@
 /.DS_Store
 /output*
 /temp
+/artifacts/
+/.bg-shell/
+/.fastembed_cache/
 
 # ── GSD baseline (auto-generated) ──
 .gsd/activity/
