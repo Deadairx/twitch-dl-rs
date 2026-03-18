@@ -1,71 +1,124 @@
+use regex::Regex;
 use reqwest::Client;
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
 use thiserror::Error;
+use url::Url;
+
+use crate::cli::QualityPreference;
 
 #[derive(Debug, Error)]
 pub enum DownloadError {
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
     #[error("Failed to parse m3u8 playlist")] 
     Parse,
+    #[error("Invalid playlist URL: {0}")]
+    Url(#[from] url::ParseError),
 }
 
-/// Recursively fetches the first media playlist with .ts segments.
-async fn fetch_media_playlist(client: &Client, initial_url: &str) -> Result<(String, Vec<String>), DownloadError> {
-    let mut m3u8_url = initial_url.to_string();
-    loop {
-        let playlist = client.get(&m3u8_url).send().await?.text().await?;
-        println!("\n--- Playlist from {} ---\n{}\n--- End Playlist ---\n", m3u8_url, playlist);
-        let mut ts_segments = vec![];
-        let mut m3u8_links = vec![];
-        for line in playlist.lines() {
-            let line = line.trim();
-            if line.ends_with(".ts") {
-                ts_segments.push(line.to_string());
-            } else if line.ends_with(".m3u8") {
-                m3u8_links.push(line.to_string());
-            }
-        }
-        if !ts_segments.is_empty() {
-            return Ok((m3u8_url.clone(), ts_segments));
-        } else if !m3u8_links.is_empty() {
-            // Pick the first variant playlist (could be improved to select quality)
-            let next_url = if m3u8_links[0].starts_with("http") {
-                m3u8_links[0].clone()
-            } else {
-                let base = m3u8_url.rsplit_once('/').map(|(b, _)| b).unwrap_or("");
-                format!("{}/{}", base, m3u8_links[0])
-            };
-            m3u8_url = next_url;
-            continue;
-        } else {
-            return Err(DownloadError::Parse);
-        }
-    }
+#[derive(Debug, Clone)]
+pub struct StreamInfo {
+    pub playlist_url: String,
+    pub bandwidth: Option<u64>,
+    pub resolution: Option<String>,
+    pub codecs: Option<String>,
+    pub name: Option<String>,
+    pub is_audio_only: bool,
 }
 
-/// Downloads the m3u8 playlist and all segments to the given directory.
-pub async fn download_m3u8_stream(m3u8_url: &str, output_dir: &Path) -> Result<(), DownloadError> {
+pub async fn resolve_stream(
+    master_url: &str,
+    preference: QualityPreference,
+) -> Result<StreamInfo, DownloadError> {
     let client = Client::new();
-    let (playlist_url, segment_urls) = fetch_media_playlist(&client, m3u8_url).await?;
+    let playlist = client.get(master_url).send().await?.error_for_status()?.text().await?;
+    let master = Url::parse(master_url)?;
 
-    // Download each segment
-    for (i, segment_url) in segment_urls.iter().enumerate() {
-        let url = if segment_url.starts_with("http") {
-            segment_url.to_string()
-        } else {
-            let base = playlist_url.rsplit_once('/').map(|(b, _)| b).unwrap_or("");
-            format!("{}/{}", base, segment_url)
-        };
-        let resp = client.get(&url).send().await?.bytes().await?;
-        let segment_path = output_dir.join(format!("segment_{:05}.ts", i));
-        let mut file = File::create(&segment_path)?;
-        file.write_all(&resp)?;
-        println!("Downloaded segment {}", i + 1);
+    let bandwidth_re = Regex::new(r#"BANDWIDTH=(\d+)"#).map_err(|_| DownloadError::Parse)?;
+    let resolution_re = Regex::new(r#"RESOLUTION=(\d+x\d+)"#).map_err(|_| DownloadError::Parse)?;
+    let codecs_re = Regex::new(r#"CODECS=\"([^\"]+)\""#).map_err(|_| DownloadError::Parse)?;
+    let name_re = Regex::new(r#"NAME=\"([^\"]+)\""#).map_err(|_| DownloadError::Parse)?;
+
+    let mut variants = Vec::new();
+    let mut pending_inf: Option<&str> = None;
+
+    for line in playlist.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if line.starts_with("#EXT-X-STREAM-INF:") {
+            pending_inf = Some(line);
+            continue;
+        }
+
+        if line.starts_with('#') {
+            continue;
+        }
+
+        if let Some(stream_inf) = pending_inf.take() {
+            let bandwidth = bandwidth_re
+                .captures(stream_inf)
+                .and_then(|caps| caps.get(1))
+                .and_then(|value| value.as_str().parse::<u64>().ok());
+            let resolution = resolution_re
+                .captures(stream_inf)
+                .and_then(|caps| caps.get(1))
+                .map(|value| value.as_str().to_string());
+            let codecs = codecs_re
+                .captures(stream_inf)
+                .and_then(|caps| caps.get(1))
+                .map(|value| value.as_str().to_string());
+            let name = name_re
+                .captures(stream_inf)
+                .and_then(|caps| caps.get(1))
+                .map(|value| value.as_str().to_string());
+            let playlist_url = master.join(line)?.to_string();
+            let is_audio_only = playlist_url.contains("audio_only")
+                || name
+                    .as_deref()
+                    .map(|value| value.to_ascii_lowercase().contains("audio"))
+                    .unwrap_or(false)
+                || resolution.is_none();
+
+            variants.push(StreamInfo {
+                playlist_url,
+                bandwidth,
+                resolution,
+                codecs,
+                name,
+                is_audio_only,
+            });
+        }
     }
-    Ok(())
-} 
+
+    if variants.is_empty() {
+        return Ok(StreamInfo {
+            playlist_url: master_url.to_string(),
+            bandwidth: None,
+            resolution: None,
+            codecs: None,
+            name: None,
+            is_audio_only: false,
+        });
+    }
+
+    let selected = match preference {
+        QualityPreference::AudioOnly => variants
+            .iter()
+            .filter(|variant| variant.is_audio_only)
+            .min_by_key(|variant| variant.bandwidth.unwrap_or(u64::MAX))
+            .cloned()
+            .or_else(|| {
+                variants
+                    .iter()
+                    .min_by_key(|variant| variant.bandwidth.unwrap_or(u64::MAX))
+                    .cloned()
+            }),
+        QualityPreference::Lowest => variants
+            .iter()
+            .min_by_key(|variant| variant.bandwidth.unwrap_or(u64::MAX))
+            .cloned(),
+        QualityPreference::Highest => variants
+            .iter()
+            .max_by_key(|variant| variant.bandwidth.unwrap_or_default())
+            .cloned(),
+    };
+
+    selected.ok_or(DownloadError::Parse)
+}
