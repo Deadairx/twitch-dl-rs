@@ -79,7 +79,7 @@ pub fn write_metadata(
     Ok(metadata_path)
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct QueueFile {
     schema_version: u32,
     channel: String,
@@ -87,7 +87,7 @@ pub struct QueueFile {
     past_broadcasts_only: bool,
     min_seconds: u64,
     queued_count: usize,
-    queued: Vec<VodEntry>,
+    pub queued: Vec<VodEntry>,
     skipped_existing_ids: Vec<String>,
 }
 
@@ -203,4 +203,68 @@ pub fn find_media_file(artifact_dir: &Path) -> Option<PathBuf> {
         .into_iter()
         .map(|name| artifact_dir.join(name))
         .find(|path| path.exists())
+}
+
+pub fn read_queue_file(
+    output_root: &Path,
+    channel: &str,
+) -> Result<QueueFile, Box<dyn std::error::Error>> {
+    let queue_path = output_root.join("queues").join(format!("{}.json", channel.to_ascii_lowercase()));
+    if !queue_path.exists() {
+        return Err(format!("No queue file found for channel '{}'. Run 'queue {}' first.", channel, channel).into());
+    }
+    let content = fs::read_to_string(&queue_path)?;
+    Ok(serde_json::from_str(&content)?)
+}
+
+pub fn scan_artifact_statuses(
+    output_root: &Path,
+) -> Result<Vec<(String, Option<ProcessStatus>)>, std::io::Error> {
+    let mut results = Vec::new();
+    let ids = existing_artifact_ids(output_root)?;
+    for video_id in ids {
+        let artifact_dir = output_root.join(&video_id);
+        let status = read_status(&artifact_dir).unwrap_or(None);
+        results.push((video_id, status));
+    }
+    Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_read_queue_file_roundtrip() {
+        let dir = tempdir().unwrap();
+        // write a minimal QueueFile JSON, then read it back
+        let queue_dir = dir.path().join("queues");
+        fs::create_dir_all(&queue_dir).unwrap();
+        let json = r#"{"schema_version":1,"channel":"testchan","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":1,"queued":[{"channel":"testchan","title":"Test VOD","url":"https://www.twitch.tv/videos/123","video_id":"123","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("testchan.json"), json).unwrap();
+        let qf = read_queue_file(dir.path(), "testchan").unwrap();
+        assert_eq!(qf.queued.len(), 1);
+        assert_eq!(qf.queued[0].video_id, "123");
+    }
+
+    #[test]
+    fn test_scan_artifact_statuses_empty() {
+        let dir = tempdir().unwrap();
+        let results = scan_artifact_statuses(dir.path()).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_status_roundtrip() {
+        let dir = tempdir().unwrap();
+        let artifact_dir = dir.path().join("123456");
+        fs::create_dir_all(&artifact_dir).unwrap();
+        let mut status = ProcessStatus::new("123456", "https://www.twitch.tv/videos/123456");
+        status.downloaded = true;
+        write_status(&artifact_dir, &status).unwrap();
+        let read_back = read_status(&artifact_dir).unwrap().unwrap();
+        assert_eq!(read_back.downloaded, true);
+        assert_eq!(read_back.video_id, "123456");
+    }
 }

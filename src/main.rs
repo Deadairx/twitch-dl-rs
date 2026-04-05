@@ -62,6 +62,12 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        cli::CliCommand::Status { output_root } => {
+            if let Err(error) = show_status(&output_root).await {
+                eprintln!("Status failed: {error}");
+                std::process::exit(1);
+            }
+        }
     }
 }
 
@@ -307,4 +313,26 @@ fn parse_duration_seconds(duration: &str) -> Option<u64> {
         .strip_prefix("PT")
         .and_then(|value| value.strip_suffix('S'))
         .and_then(|value| value.parse::<u64>().ok())
+}
+
+async fn show_status(output_root: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    let items = artifact::scan_artifact_statuses(output_root)?;
+    if items.is_empty() {
+        println!("No artifacts found in {}", output_root.display());
+        return Ok(());
+    }
+    println!("{:<15} {:<12} {:<12} {}", "VIDEO_ID", "DOWNLOADED", "TRANSCRIBED", "LAST_ERROR");
+    println!("{}", "-".repeat(70));
+    for (video_id, status) in &items {
+        match status {
+            Some(s) => {
+                let last_err = s.last_error.as_deref().unwrap_or("-");
+                let truncated = if last_err.len() > 40 { &last_err[..40] } else { last_err };
+                println!("{:<15} {:<12} {:<12} {}", video_id, s.downloaded, s.transcribed, truncated);
+            }
+            None => println!("{:<15} {:<12} {:<12} {}", video_id, "(no status)", "-", "-"),
+        }
+    }
+    println!("\n{} artifact(s) total", items.len());
+    Ok(())
 }

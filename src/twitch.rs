@@ -18,7 +18,7 @@ pub enum TwitchError {
     Parse(String),
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VodEntry {
     pub channel: String,
     pub title: String,

@@ -29,6 +29,9 @@ pub enum CliCommand {
         quality: QualityPreference,
         continue_on_error: bool,
     },
+    Status {
+        output_root: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -169,6 +172,16 @@ pub fn parse_args() -> Cli {
                         .action(ArgAction::SetTrue),
                 ),
         )
+        .subcommand(
+            Command::new("status")
+                .about("Show status of all downloaded/transcribed artifacts")
+                .arg(
+                    Arg::new("output-root")
+                        .long("output-root")
+                        .help("Directory where artifact folders are stored")
+                        .default_value("artifacts"),
+                ),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -235,6 +248,15 @@ pub fn parse_args() -> Cli {
                         .expect("quality has a default value"),
                 ),
                 continue_on_error: process_matches.get_flag("continue-on-error"),
+            },
+        },
+        Some(("status", status_matches)) => Cli {
+            command: CliCommand::Status {
+                output_root: PathBuf::from(
+                    status_matches
+                        .get_one::<String>("output-root")
+                        .expect("output-root has a default value"),
+                ),
             },
         },
         _ => unreachable!("clap enforces a subcommand"),

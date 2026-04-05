@@ -11,7 +11,10 @@ Turn `twitch-dl-rs` into a repeatable pipeline that:
 
 ## Decisions Locked In
 
-- Use the currently wired local transcription backend for local transcription, with room to swap it once reliability tradeoffs are better understood.
+- Use `hear` as the default and only in-scope transcription backend for the current milestone; prioritize transcript trustworthiness over speed or backend comparison.
+- When invoking `hear`, always use on-device mode with file input explicitly: `hear -d -i <audio-file> -S`; do not rely on microphone defaults or omit `-d`.
+- Persist the trusted transcript path as `hear -> transcript.srt -> transcript.vtt`, with `transcript.txt` as an optional derived readable artifact.
+- Defer chat capture and transcript/chat timeline alignment to a future milestone; treat them later as first-class timed artifacts rather than part of transcription itself.
 - Keep the full transcript as a filesystem artifact.
 - Store concise structured notes in memory, not the raw transcript.
 - Build the first version around one creator/channel, then generalize.
@@ -44,6 +47,8 @@ artifacts/
       metadata.json
       source_url.txt
       video.mp4
+      transcript.srt
+      transcript.vtt
       transcript.txt
       notes.md
       memory.json
@@ -52,7 +57,9 @@ artifacts/
 
 Notes:
 
-- `transcript.txt` is the full transcript output after light reflow when needed.
+- `transcript.srt` is the raw trusted subtitle output from `hear`.
+- `transcript.vtt` is the canonical timed transcript artifact for downstream use.
+- `transcript.txt` is an optional readable derivative, not the canonical source of truth.
 - `notes.md` is the concise human-readable summary.
 - `memory.json` stores the exact concise payload intended for Ember.
 - `status.json` tracks pipeline completion so reruns are safe.
@@ -94,17 +101,21 @@ Exit criteria:
 
 Objective: convert the downloaded media artifact into a stable transcript artifact.
 
+Note: chat capture is intentionally out of scope for the current milestone. A future milestone should add durable chat capture, likely as `chat.json`, plus alignment against VOD/transcript timestamps.
+
 Tasks:
 
-- invoke the configured local transcription backend against the downloaded media or extracted audio
-- keep punctuation enabled if that is part of your normal `hear` workflow
-- reflow single-line output into readable paragraphs
-- save the final transcript to `transcript.txt`
+- invoke `hear` with the explicit file-input, on-device subtitle command: `hear -d -i <audio-file> -S`
+- do not rely on implicit stdin/microphone behavior; the file path must always be passed via `-i`
+- treat `-d` as mandatory so transcription stays local-only and avoids server-side/API-selected behavior
+- persist the raw subtitle output to `transcript.srt`
+- convert the trusted subtitle output into canonical `transcript.vtt`
+- optionally derive a readable `transcript.txt`
 - capture transcription stderr/stdout summary into status metadata for debugging
 
 Exit criteria:
 
-- each processed VOD has a readable full transcript artifact on disk
+- each processed VOD has a canonical timed transcript artifact on disk, with optional readable derivative output
 
 ### Phase 4: Summarization Stage
 
@@ -179,7 +190,7 @@ twitch-dl-rs process <channel> [--limit <n>]
 
 - Keep per-stage functions isolated so failures are resumable.
 - Prefer JSON metadata files over hidden ad hoc state.
-- Treat transcript generation as expensive; do not rerun it if `transcript.txt` already exists unless forced.
+- Treat transcript generation as expensive; do not rerun it if `transcript.vtt` already exists unless forced.
 - Treat memory writes as the final step after notes are validated.
 - Keep the first implementation local-only and single-user.
 

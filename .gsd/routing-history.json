@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "patterns": {
+    "complete-slice": {
+      "light": {
+        "success": 1,
+        "fail": 0
+      },
+      "standard": {
+        "success": 0,
+        "fail": 0
+      },
+      "heavy": {
+        "success": 0,
+        "fail": 0
+      }
+    },
+    "research-slice": {
+      "light": {
+        "success": 0,
+        "fail": 0
+      },
+      "standard": {
+        "success": 1,
+        "fail": 0
+      },
+      "heavy": {
+        "success": 0,
+        "fail": 0
+      }
+    },
+    "plan-slice": {
+      "light": {
+        "success": 0,
+        "fail": 0
+      },
+      "standard": {
+        "success": 0,
+        "fail": 0
+      },
+      "heavy": {
+        "success": 1,
+        "fail": 0
+      }
+    },
+    "execute-task": {
+      "light": {
+        "success": 0,
+        "fail": 0
+      },
+      "standard": {
+        "success": 1,
+        "fail": 0
+      },
+      "heavy": {
+        "success": 0,
+        "fail": 0
+      }
+    }
+  },
+  "feedback": [],
+  "updatedAt": "2026-04-05T05:59:53.845Z"
+}
