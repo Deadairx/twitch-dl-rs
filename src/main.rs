@@ -145,6 +145,7 @@ async fn download_vod(
         &video_path,
         &stream,
         auth_token.is_some(),
+        None,
     )?;
     artifact::write_metadata(&artifact_dir, &metadata)?;
 

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-04-06T03:56:02.494Z",
+  "exported_at": "2026-04-06T19:01:03.114Z",
   "milestones": [
     {
       "id": "M001",
@@ -27,6 +27,78 @@
       "definition_of_done": [],
       "requirement_coverage": "",
       "boundary_map_markdown": "## Boundary Map\n\n### S01 → S02\n\nProduces:\n- Filesystem-backed per-item artifact record with stable identifiers and richer stage/status fields than the current `downloaded` / `transcribed` booleans\n- Queue file format that distinguishes queued work from already-known artifact state\n- CLI-visible status inspection surface for existing artifacts and queued items\n\nConsumes:\n- nothing (first slice)\n\n### S02 → S03\n\nProduces:\n- Separate stage commands or scheduler behavior for download progress vs transcription progress\n- Durable stage transitions for pending, running, failed, completed, and resumable work\n- Resume semantics that prevent completed download work from being redone unnecessarily\n\nConsumes from S01:\n- artifact state model\n- queue file format\n- status inspection surface\n\n### S03 → S04\n\nProduces:\n- Trusted transcript artifact contract for completed items\n- Structured failure reason capture for transcription failures\n- Transcript completion signal strong enough to drive downstream lifecycle state\n\nConsumes from S01:\n- artifact state model\n\nConsumes from S02:\n- staged execution and resume behavior\n\n### S04 → S05\n\nProduces:\n- `ready for notes` lifecycle state and artifact marker\n- Cleanup candidate discovery contract that excludes unsafe or incomplete items\n- Manual cleanup review command surface\n\nConsumes from S01:\n- artifact metadata and status model\n\nConsumes from S02:\n- staged lifecycle behavior\n\nConsumes from S03:\n- transcript completion and failure semantics"
+    },
+    {
+      "id": "M002-z48awz",
+      "title": "Workflow Polish",
+      "status": "active",
+      "depends_on": [],
+      "created_at": "2026-04-06T07:19:16.643Z",
+      "completed_at": null,
+      "vision": "Make the operator workflow legible, flexible, and robust: status shows human-readable context, intake accepts single videos, download-all drains queues without a channel argument, suspect transcriptions are retryable, and at least one non-Twitch source works through the same artifact model.",
+      "success_criteria": [
+        "status shows truncated title, human-readable date, and channel name for all artifact types including queued-only items",
+        "queue-video <url> queues a single VOD by URL, channel inferred, merged into queues/<channel>.json",
+        "download-all works with no channel argument, walking all queue files",
+        "status --filter supports queued-only, pending, failed, ready views",
+        "Suspect transcriptions are force-retryable without re-downloading",
+        "At least one non-Twitch source ingests through the same artifact model with status.json produced"
+      ],
+      "key_risks": [
+        {
+          "risk": "ArtifactMetadata schema change",
+          "whyItMatters": "title/uploaded_at/channel must flow from VodEntry through the download path into metadata.json; the download command currently has no VodEntry context"
+        },
+        {
+          "risk": "download command produces no status.json",
+          "whyItMatters": "All artifact paths must produce consistent status.json for status display and filtering to work correctly"
+        },
+        {
+          "risk": "Non-Twitch source integration approach",
+          "whyItMatters": "yt-dlp subprocess vs Rust library choice affects how cleanly the source boundary is drawn and how testable the integration is"
+        },
+        {
+          "risk": "Concurrent status.json access",
+          "whyItMatters": "Batch commands running adjacent items could corrupt status.json without file-level locking"
+        }
+      ],
+      "proof_strategy": [
+        {
+          "riskOrUnknown": "ArtifactMetadata schema change",
+          "retireIn": "S01",
+          "whatWillBeProven": "metadata.json written by download and queue-video contains title, uploaded_at, channel; old artifacts without these fields deserialize cleanly"
+        },
+        {
+          "riskOrUnknown": "download command produces no status.json",
+          "retireIn": "S01",
+          "whatWillBeProven": "direct download via URL produces a status.json with downloaded=true alongside metadata.json"
+        },
+        {
+          "riskOrUnknown": "Non-Twitch source integration approach",
+          "retireIn": "S07",
+          "whatWillBeProven": "a YouTube URL ingests into a valid artifact directory with audio file and status.json via yt-dlp subprocess"
+        },
+        {
+          "riskOrUnknown": "Concurrent status.json access",
+          "retireIn": "S06",
+          "whatWillBeProven": "parallel status.json writes under test do not corrupt the file"
+        }
+      ],
+      "verification_contract": "Unit tests: ArtifactMetadata roundtrip with new fields, backward-compat deserialization of old metadata.json, ProcessStatus filter logic, queue-file merge behavior",
+      "verification_integration": "queue-video against a real Twitch URL; download-all with no channel arg across two channel queues; status output with mixed artifact types; force-retry on a real suspect artifact",
+      "verification_operational": "none",
+      "verification_uat": "Operator runs status and sees title/date/channel; runs queue-video and sees it appear in download-all; retries a suspect artifact",
+      "definition_of_done": [
+        "All slice deliverables complete",
+        "status shows title/date/channel for queued, downloaded, and transcribed artifacts",
+        "queue-video and download-all (no channel) exercised against real Twitch VODs",
+        "Suspect force-retry exercised on a real artifact",
+        "Non-Twitch source ingests through artifact model with status.json",
+        "All new ArtifactMetadata fields backward-compatible with existing metadata.json files",
+        "cargo test passes"
+      ],
+      "requirement_coverage": "Covers: R005 (status legibility), R009 (cleanup hardening via retry), R010 (additional source), R012 (resumability via selective processing). Partially covers: R006 (ready-for-notes continuity reinforced by retry). Leaves for later: R007, R008, R011 (M003 notes/memory work).",
+      "boundary_map_markdown": "### S01 → S02, S03, S04\nProduces:\n- `ArtifactMetadata` with fields: `title: Option<String>`, `uploaded_at: Option<String>`, `channel: Option<String>`\n- `download` command writes `status.json` with `downloaded=true` on all paths\n- `write_metadata` accepts optional display fields from `VodEntry` or None for direct-URL downloads\n\nConsumes:\n- nothing (extends M001 foundation)\n\n### S02 → S05\nProduces:\n- `show_status` reads `metadata.json` per artifact for title/date/channel display\n- Queued-only rows sourced from queue files, shown with `stage=queued` and no artifact data\n- `--filter` CLI arg plumbed through to `show_status`\n\nConsumes from S01:\n- metadata.json with display fields\n\n### S03 → S04\nProduces:\n- `queue-video <url>` command: fetches VodEntry from Twitch API, merges into `queues/<channel>.json`\n- `download-all` accepts optional `--channel` filter; no channel walks all queue files via `read_all_queue_files()`\n\nConsumes from S01:\n- download path that produces status.json and metadata.json with display fields\n\n### S04 → S05\nProduces:\n- `--video-id` flag on `download-all` and `transcribe-all`\n- Selective path reads queue files to find the target item across channels\n\nConsumes from S03:\n- `read_all_queue_files()` helper\n\n### S05 → S06\nProduces:\n- `--filter` fully implemented with queued/pending/failed/ready semantics\n- Filter logic reads queue files + artifact status.json consistently\n\nConsumes from S02:\n- queue-file reading path for queued-only items\nConsumes from S04:\n- selective processing plumbing\n\n### S06 → S07\nProduces:\n- `write_status` wrapped with file-level locking (likely `fs2` or `fd-lock` crate)\n- `transcribe_artifact` accepts a `force: bool` flag\n- `transcribe-all --force-suspect` CLI flag\n\nConsumes from S05:\n- stable artifact scanning and filtering\n\n### S07 (terminal)\nProduces:\n- `download` accepts YouTube URLs, dispatches to `yt-dlp` subprocess\n- YouTube artifacts follow identical directory layout: `audio.m4a`, `metadata.json`, `status.json`\n- Source detection: URL pattern match before dispatch\n\nConsumes from S06:\n- locked `write_status`\n- `transcribe_artifact` unchanged interface"
     }
   ],
   "slices": [
@@ -129,6 +201,160 @@
       "proof_level": "final-assembly — real CLI runtime, real artifact filesystem, real `hear` invocation for failure scenario",
       "integration_closure": "Upstream consumed: artifact.rs schema (S01), status/download-all/transcribe-all commands (S02), TranscriptionOutcome + SRT/VTT artifacts (S03), ready_for_notes + cleanup command (S04). New wiring: none — this slice only exercises existing contracts. What remains: nothing — M001 is complete after this slice.",
       "observability_impact": "Proof log at `proofs/proof.log` is the durable evidence artifact. Each phase (status, scratch-completed, failure) is a labeled section in the log for human review.",
+      "sequence": 0,
+      "replan_triggered_at": null
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "id": "S01",
+      "title": "Metadata Durability",
+      "status": "pending",
+      "risk": "high",
+      "depends": [],
+      "demo": "After this: run download on a Twitch URL and inspect metadata.json to see title, uploaded_at, channel alongside existing fields. Old artifact directories still load cleanly.",
+      "created_at": "2026-04-06T07:19:16.646Z",
+      "completed_at": null,
+      "full_summary_md": "",
+      "full_uat_md": "",
+      "goal": "Extend ArtifactMetadata with title, channel, and uploaded_at fields and thread them through every code path that writes metadata.json, so every new artifact carries human-readable context and old artifacts load cleanly.",
+      "success_criteria": "cargo test passes with backward-compat and roundtrip tests; cargo build --release succeeds; bare download writes status.json with downloaded=true; metadata.json contains title/channel/uploaded_at on new artifacts; old artifacts without new fields deserialize cleanly via read_metadata",
+      "proof_level": "contract + integration; real runtime required for manual metadata.json inspection; no UAT required",
+      "integration_closure": "Upstream: src/twitch.rs (VodEntry, unauthenticated GQL client pattern); src/artifact.rs (ArtifactMetadata::from_download, write_metadata). New wiring: fetch_vod_metadata_by_id in twitch.rs; vod_context tuple threaded into download_vod; --skip-metadata in cli.rs; write_status in bare download path. Remaining: S02 reads metadata.json for status display.",
+      "observability_impact": "GQL fetch failures print reason + --skip-metadata suggestion to stderr before abort; no partial artifact left behind. metadata.json is now readable via typed read_metadata function.",
+      "sequence": 0,
+      "replan_triggered_at": null
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "id": "S02",
+      "title": "Status Legibility",
+      "status": "pending",
+      "risk": "medium",
+      "depends": [
+        "S01"
+      ],
+      "demo": "After this: run status against an output root with queued, downloaded, and transcribed items and see a readable table with title, date, and channel for every row.",
+      "created_at": "2026-04-06T07:19:16.646Z",
+      "completed_at": null,
+      "full_summary_md": "",
+      "full_uat_md": "",
+      "goal": "Update the status command to display truncated title, human-readable date, and channel name. Show queued-but-not-downloaded items mixed in by default. Add --filter flag.",
+      "success_criteria": "status table includes TITLE (truncated to ~30 chars), DATE, CHANNEL columns. Items with no artifact directory but present in a queue file appear with stage=queued. --filter accepts queued, pending, failed, ready values.",
+      "proof_level": "manual verification against real artifact directory with mixed item types",
+      "integration_closure": "status reads metadata.json per artifact; reads all queue files for queued-only items",
+      "observability_impact": "primary operator visibility surface gains human-readable context",
+      "sequence": 0,
+      "replan_triggered_at": null
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "id": "S03",
+      "title": "Intake Flexibility",
+      "status": "pending",
+      "risk": "medium",
+      "depends": [
+        "S01"
+      ],
+      "demo": "After this: run queue-video on a Twitch URL, then run download-all with no arguments and watch the queued item download.",
+      "created_at": "2026-04-06T07:19:16.646Z",
+      "completed_at": null,
+      "full_summary_md": "",
+      "full_uat_md": "",
+      "goal": "Add queue-video <url> command that queues a single VOD by URL, inferring channel from Twitch API and merging into queues/<channel>.json. Make download-all channel arg optional.",
+      "success_criteria": "queue-video <url> succeeds for a valid Twitch URL, adds entry to queues/<channel>.json. download-all with no channel arg walks all queue files and downloads pending items. download-all --channel <name> still works as a filter.",
+      "proof_level": "integration test against real Twitch VOD URL",
+      "integration_closure": "queue-video output is consumable by download-all without a channel argument",
+      "observability_impact": "queue-video prints channel inferred and entry added to confirm merge",
+      "sequence": 0,
+      "replan_triggered_at": null
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "id": "S04",
+      "title": "Selective Processing",
+      "status": "pending",
+      "risk": "low",
+      "depends": [
+        "S01",
+        "S03"
+      ],
+      "demo": "After this: run download-all --video-id 123456789 and watch only that one item download while others are skipped.",
+      "created_at": "2026-04-06T07:19:16.646Z",
+      "completed_at": null,
+      "full_summary_md": "",
+      "full_uat_md": "",
+      "goal": "Add --video-id targeting to download-all and transcribe-all so operators can run a single item without batch semantics.",
+      "success_criteria": "download-all --video-id <id> downloads only that item from any queue file. transcribe-all --video-id <id> transcribes only that artifact. Both commands still work without --video-id for batch behavior.",
+      "proof_level": "unit tests + manual verification",
+      "integration_closure": "selective targeting reads from queue files and artifact directories consistently with batch paths",
+      "observability_impact": "targeted runs print which item is being processed and skip count",
+      "sequence": 0,
+      "replan_triggered_at": null
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "id": "S05",
+      "title": "Queue-Aware Filtering",
+      "status": "pending",
+      "risk": "low",
+      "depends": [
+        "S02",
+        "S04"
+      ],
+      "demo": "After this: run status --filter failed and see only failed items; run status --filter queued and see only items waiting to download.",
+      "created_at": "2026-04-06T07:19:16.646Z",
+      "completed_at": null,
+      "full_summary_md": "",
+      "full_uat_md": "",
+      "goal": "Solidify the --filter flag on status with all four filter values (queued, pending, failed, ready) and verify clean display across all states.",
+      "success_criteria": "status --filter queued shows only items present in queue files but not downloaded. status --filter pending shows downloaded but not transcribed. status --filter failed shows transcription_outcome=failed. status --filter ready shows ready_for_notes=true.",
+      "proof_level": "unit tests against fixture artifact directories",
+      "integration_closure": "filter logic reads both queue files and artifact status.json consistently",
+      "observability_impact": "operators can isolate actionable items without scanning the full table",
+      "sequence": 0,
+      "replan_triggered_at": null
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "id": "S06",
+      "title": "Retry And Operational Hardening",
+      "status": "pending",
+      "risk": "medium",
+      "depends": [
+        "S05"
+      ],
+      "demo": "After this: run transcribe-all --force-suspect and watch a suspect item re-transcribe and update its outcome in status.",
+      "created_at": "2026-04-06T07:19:16.646Z",
+      "completed_at": null,
+      "full_summary_md": "",
+      "full_uat_md": "",
+      "goal": "Add force-retry for suspect transcriptions without re-downloading. Add file-level locking on status.json writes. Validate long-VOD transcription behavior.",
+      "success_criteria": "transcribe-all --force-suspect retries artifacts with transcription_outcome=suspect. status.json writes use file locking so concurrent writes do not corrupt. A >3h VOD can be transcribed without process-level failure.",
+      "proof_level": "unit tests for locking behavior + manual retry on a real suspect artifact",
+      "integration_closure": "force-retry path reuses transcribe_artifact helper with a force flag; locking wraps write_status",
+      "observability_impact": "retry prints previous outcome and new outcome after completion",
+      "sequence": 0,
+      "replan_triggered_at": null
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "id": "S07",
+      "title": "Additional Source Support",
+      "status": "pending",
+      "risk": "high",
+      "depends": [
+        "S06"
+      ],
+      "demo": "After this: run download on a YouTube URL, then transcribe-all, and see the artifact appear in status alongside Twitch items.",
+      "created_at": "2026-04-06T07:19:16.646Z",
+      "completed_at": null,
+      "full_summary_md": "",
+      "full_uat_md": "",
+      "goal": "Add YouTube as a second supported source via yt-dlp subprocess. Preserve the same durable artifact model. Keep source-specific intake isolated from downstream stages.",
+      "success_criteria": "A YouTube URL can be passed to download and produces a valid artifact directory with audio file, metadata.json, and status.json. transcribe-all picks it up and transcribes it. Twitch intake is unaffected.",
+      "proof_level": "integration test against a real YouTube URL",
+      "integration_closure": "YouTube download produces artifacts compatible with transcribe_artifact; status displays YouTube artifacts alongside Twitch ones",
+      "observability_impact": "status CHANNEL column shows youtube or channel name from metadata",
       "sequence": 0,
       "replan_triggered_at": null
     }
@@ -570,6 +796,80 @@
       "observability_impact": "",
       "full_plan_md": "",
       "sequence": 0
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "slice_id": "S01",
+      "id": "T01",
+      "title": "Extend ArtifactMetadata schema and add GQL metadata fetch",
+      "status": "pending",
+      "one_liner": "",
+      "narrative": "",
+      "verification_result": "",
+      "duration": "",
+      "completed_at": null,
+      "blocker_discovered": false,
+      "deviations": "",
+      "known_issues": "",
+      "key_files": [],
+      "key_decisions": [],
+      "full_summary_md": "",
+      "description": "Add three new display fields to ArtifactMetadata and a new GQL function in twitch.rs. Purely library code — no call-site changes in main.rs or cli.rs. T02 wires the results into the runtime paths.",
+      "estimate": "45m",
+      "files": [
+        "src/artifact.rs",
+        "src/twitch.rs"
+      ],
+      "verify": "cargo test 2>&1 | grep -E 'test result|FAILED|^error'",
+      "inputs": [
+        "src/artifact.rs",
+        "src/twitch.rs"
+      ],
+      "expected_output": [
+        "src/artifact.rs",
+        "src/twitch.rs"
+      ],
+      "observability_impact": "read_metadata exposes previously write-only metadata.json as a typed struct. Returns Err on malformed JSON so callers get a typed error rather than a silent None.",
+      "full_plan_md": "",
+      "sequence": 0
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "slice_id": "S01",
+      "id": "T02",
+      "title": "Wire vod context into download paths and add --skip-metadata flag",
+      "status": "pending",
+      "one_liner": "",
+      "narrative": "",
+      "verification_result": "",
+      "duration": "",
+      "completed_at": null,
+      "blocker_discovered": false,
+      "deviations": "",
+      "known_issues": "",
+      "key_files": [],
+      "key_decisions": [],
+      "full_summary_md": "",
+      "description": "T01 produced the schema changes and fetch_vod_metadata_by_id. This task wires them into the two download call paths and adds the --skip-metadata CLI flag.",
+      "estimate": "45m",
+      "files": [
+        "src/main.rs",
+        "src/cli.rs"
+      ],
+      "verify": "cargo build 2>&1 | grep '^error'; cargo test 2>&1 | grep -E 'test result|FAILED'; ./target/debug/vod-pipeline download --help 2>&1 | grep skip-metadata",
+      "inputs": [
+        "src/artifact.rs",
+        "src/twitch.rs",
+        "src/main.rs",
+        "src/cli.rs"
+      ],
+      "expected_output": [
+        "src/main.rs",
+        "src/cli.rs"
+      ],
+      "observability_impact": "",
+      "full_plan_md": "",
+      "sequence": 0
     }
   ],
   "decisions": [
@@ -691,6 +991,54 @@
       "rationale": "Batch commands filter by artifact status; download-all skips already-downloaded items; transcribe-all skips already-transcribed items. Status.json persists across invocations.",
       "revisable": "No",
       "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 11,
+      "id": "D011",
+      "when_context": "M002-z48awz",
+      "scope": "convention",
+      "decision": "Single-video queue intake UX",
+      "choice": "Separate `queue-video <url>` command; infers channel from Twitch API, merges into queues/<channel>.json",
+      "rationale": "Keeps channel-queue structure consistent so download-all picks up queue-video entries automatically. Avoids polluting `queue` with a different intake mode.",
+      "revisable": "Yes",
+      "made_by": "collaborative",
+      "superseded_by": null
+    },
+    {
+      "seq": 12,
+      "id": "D012",
+      "when_context": "M002-z48awz",
+      "scope": "convention",
+      "decision": "download-all channel argument optionality",
+      "choice": "Channel argument becomes an optional filter; omitting it walks all queue files and merges them",
+      "rationale": "Operators should not need to remember channel names to drain the queue. Optional channel acts as a filter for targeted runs.",
+      "revisable": "Yes",
+      "made_by": "human",
+      "superseded_by": null
+    },
+    {
+      "seq": 13,
+      "id": "D013",
+      "when_context": "M002-z48awz",
+      "scope": "architecture",
+      "decision": "Display metadata schema ownership",
+      "choice": "Title, uploaded_at, and channel live in metadata.json only; status command reads both metadata.json and status.json per artifact for display",
+      "rationale": "Keeps schemas clean and single-purpose. The extra per-artifact read is acceptable; duplicating display fields into status.json would create a sync burden.",
+      "revisable": "Yes",
+      "made_by": "human",
+      "superseded_by": null
+    },
+    {
+      "seq": 14,
+      "id": "D014",
+      "when_context": "M002-z48awz",
+      "scope": "convention",
+      "decision": "Queued-but-not-downloaded item visibility in status",
+      "choice": "Show queued items mixed in by default; no flag needed to see them",
+      "rationale": "Operators want a single view of everything in flight. Hiding queued items behind a flag creates a mental model mismatch.",
+      "revisable": "Yes",
+      "made_by": "human",
       "superseded_by": null
     }
   ],

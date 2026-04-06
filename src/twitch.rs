@@ -63,6 +63,29 @@ struct ChannelVideoNode {
     length_seconds: u64,
 }
 
+#[derive(Debug, Deserialize)]
+struct VideoMetadataResponse {
+    data: Option<VideoMetadataData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct VideoMetadataData {
+    video: Option<VideoMetadataNode>,
+}
+
+#[derive(Debug, Deserialize)]
+struct VideoMetadataNode {
+    title: String,
+    #[serde(rename = "publishedAt")]
+    published_at: String,
+    owner: VideoOwner,
+}
+
+#[derive(Debug, Deserialize)]
+struct VideoOwner {
+    login: String,
+}
+
 /// Extracts the video ID from a Twitch video URL.
 pub fn extract_video_id(url: &str) -> Result<String, TwitchError> {
     // Example URLs:
@@ -172,4 +195,31 @@ pub async fn fetch_channel_archive_vods(
             duration: format!("PT{}S", edge.node.length_seconds),
         })
         .collect())
+}
+
+/// Fetches metadata for a single VOD by video ID using Twitch GQL API.
+/// Returns (title, channel, uploaded_at) as a tuple.
+pub async fn fetch_vod_metadata_by_id(video_id: &str) -> Result<(String, String, String), TwitchError> {
+    let client = Client::new();
+    let query = format!(
+        r#"{{ video(id: "{}") {{ title publishedAt owner {{ login }} }} }}"#,
+        video_id
+    );
+    let body = serde_json::json!({"query": query});
+    let response: VideoMetadataResponse = client
+        .post("https://gql.twitch.tv/gql")
+        .header("Client-ID", "kimne78kx3ncx6brgo4mv6wki5h1ko")
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    let video = response
+        .data
+        .and_then(|data| data.video)
+        .ok_or_else(|| TwitchError::Parse(format!("video node not found for id: {video_id}")))?;
+
+    Ok((video.title, video.owner.login, video.published_at))
 }

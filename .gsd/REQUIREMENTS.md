@@ -4,17 +4,6 @@ This file is the explicit capability and coverage contract for the project.
 
 ## Active
 
-### R006 — Finished transcripts must enter a clear ready-for-notes state that separates core pipeline completion from optional downstream note work.
-- Class: continuity
-- Status: active
-- Description: Finished transcripts must enter a clear ready-for-notes state that separates core pipeline completion from optional downstream note work.
-- Why it matters: The user wants transcript completion and note generation to be related but distinct states.
-- Source: user
-- Primary owning slice: M001/S04
-- Supporting slices: M001/S05
-- Validation: mapped
-- Notes: This prepares M002 without forcing notes into M001.
-
 ### R007 — The system must support manual-first note generation where the user can choose the style or question lens for a transcript.
 - Class: differentiator
 - Status: active
@@ -37,24 +26,13 @@ This file is the explicit capability and coverage contract for the project.
 - Validation: mapped
 - Notes: Memory-affecting actions should stay more explicit than basic recap generation.
 
-### R009 — The system must provide an explicit cleanup command that lists safe deletion candidates instead of automatically deleting source media.
-- Class: operability
-- Status: active
-- Description: The system must provide an explicit cleanup command that lists safe deletion candidates instead of automatically deleting source media.
-- Why it matters: Cleanup needs strong safeguards and operator control to avoid losing originals prematurely.
-- Source: user
-- Primary owning slice: M001/S04
-- Supporting slices: M001/S05
-- Validation: mapped
-- Notes: Safe candidate detection still needs locking and lifecycle awareness.
-
 ### R010 — The architecture must support additional sources such as YouTube after Twitch-first stabilization.
 - Class: core-capability
 - Status: active
 - Description: The architecture must support additional sources such as YouTube after Twitch-first stabilization.
 - Why it matters: The tool is evolving into a broader media ingestion workflow, not a Twitch-only utility.
 - Source: user
-- Primary owning slice: M003/S01
+- Primary owning slice: M002-z48awz/S07
 - Supporting slices: none
 - Validation: mapped
 - Notes: Not part of M001 delivery.
@@ -69,17 +47,6 @@ This file is the explicit capability and coverage contract for the project.
 - Supporting slices: M002/S02
 - Validation: mapped
 - Notes: This is a later memory-shaping capability, not a first milestone requirement.
-
-### R012 — Interrupted or partial work must be resumable without redoing completed stages or losing operator understanding.
-- Class: continuity
-- Status: active
-- Description: Interrupted or partial work must be resumable without redoing completed stages or losing operator understanding.
-- Why it matters: The user wants to queue work overnight and continue later without confusion.
-- Source: user
-- Primary owning slice: M001/S02
-- Supporting slices: M001/S03, M001/S05
-- Validation: mapped
-- Notes: Resume behavior depends on durable stage state and clear status semantics.
 
 ## Validated
 
@@ -134,9 +101,42 @@ This file is the explicit capability and coverage contract for the project.
 - Why it matters: The user wants to return to the queue and immediately see what failed and why.
 - Source: user
 - Primary owning slice: M001/S01
-- Supporting slices: M001/S02, M001/S03, M001/S05
+- Supporting slices: M001/S02, M001/S03, M001/S05, M002-z48awz/S01, M002-z48awz/S02, M002-z48awz/S05
 - Validation: ProcessStatus persists transcription_outcome, transcription_reason, and last_error. status command surfaces these in OUTCOME and REASON columns. proof.log phase 1 shows prior failure with reason; phase 3 shows manufactured failure captured and item remaining recoverable.
-- Notes: Status needs to survive interruptions and reruns.
+- Notes: Status legibility slices (M002-z48awz/S01, S02, S05) directly advance this by adding title/date/channel columns and filter views.
+
+### R006 — Finished transcripts must enter a clear ready-for-notes state that separates core pipeline completion from optional downstream note work.
+- Class: continuity
+- Status: validated
+- Description: Finished transcripts must enter a clear ready-for-notes state that separates core pipeline completion from optional downstream note work.
+- Why it matters: The user wants transcript completion and note generation to be related but distinct states.
+- Source: user
+- Primary owning slice: M001/S04
+- Supporting slices: M001/S05
+- Validation: ready_for_notes automatically set in transcribe_artifact() on Completed outcome. READY column in status output. cleanup lists only ready items. unit tests test_ready_for_notes_roundtrip and test_cleanup_candidate_filtering confirm behavior.
+- Notes: This prepares M002 without forcing notes into M001.
+
+### R009 — The system must provide an explicit cleanup command that lists safe deletion candidates instead of automatically deleting source media.
+- Class: operability
+- Status: validated
+- Description: The system must provide an explicit cleanup command that lists safe deletion candidates instead of automatically deleting source media.
+- Why it matters: Cleanup needs strong safeguards and operator control to avoid losing originals prematurely.
+- Source: user
+- Primary owning slice: M001/S04
+- Supporting slices: M001/S05, M002-z48awz/S06
+- Validation: cleanup command defaults to list-only mode with file sizes. Deletion requires --delete + (--all | --video-id). Protected files survive. --delete without selector returns exit code 1. No auto-deletion path exists.
+- Notes: Retry hardening (M002-z48awz/S06) adds force-retry for suspect items and concurrent access safety, reinforcing reliable cleanup candidate detection.
+
+### R012 — Interrupted or partial work must be resumable without redoing completed stages or losing operator understanding.
+- Class: continuity
+- Status: validated
+- Description: Interrupted or partial work must be resumable without redoing completed stages or losing operator understanding.
+- Why it matters: The user wants to queue work overnight and continue later without confusion.
+- Source: user
+- Primary owning slice: M001/S02
+- Supporting slices: M001/S02, M001/S03, M001/S05, M002-z48awz/S04, M002-z48awz/S06
+- Validation: All batch commands check status.json before acting. downloaded=true skips re-download; transcribed=true skips re-transcription. S05 proof phase 3 confirms failed item remains in artifact directory with reason persisted, ready for retry.
+- Notes: Selective processing (M002-z48awz/S04) and retry hardening (S06) reinforce resumability beyond M001's foundation.
 
 ## Deferred
 
@@ -205,14 +205,14 @@ This file is the explicit capability and coverage contract for the project.
 | R002 | core-capability | validated | M001/S01 | M001/S05 | queue and process commands ingest Twitch VODs via twitch.rs; artifact directories created with source_url.txt, metadata.json, audio.m4a, and status.json. Confirmed functional in S05 proof run against real artifacts. |
 | R003 | operability | validated | M001/S02 | M001/S05 | download-all and transcribe-all operate as independent CLI commands. S05 proof shows artifacts in mixed staged states. Each command checks status.json before acting, enabling independent recovery. |
 | R004 | quality-attribute | validated | M001/S03 | M001/S05 | hear-backed transcription with word-count threshold (50 words/hour) and repetition detection (trigram >10x in 200-word window). Both SRT and VTT required for completed outcome. 7/7 transcribe unit tests confirm heuristic logic. |
-| R005 | failure-visibility | validated | M001/S01 | M001/S02, M001/S03, M001/S05 | ProcessStatus persists transcription_outcome, transcription_reason, and last_error. status command surfaces these in OUTCOME and REASON columns. proof.log phase 1 shows prior failure with reason; phase 3 shows manufactured failure captured and item remaining recoverable. |
-| R006 | continuity | active | M001/S04 | M001/S05 | mapped |
+| R005 | failure-visibility | validated | M001/S01 | M001/S02, M001/S03, M001/S05, M002-z48awz/S01, M002-z48awz/S02, M002-z48awz/S05 | ProcessStatus persists transcription_outcome, transcription_reason, and last_error. status command surfaces these in OUTCOME and REASON columns. proof.log phase 1 shows prior failure with reason; phase 3 shows manufactured failure captured and item remaining recoverable. |
+| R006 | continuity | validated | M001/S04 | M001/S05 | ready_for_notes automatically set in transcribe_artifact() on Completed outcome. READY column in status output. cleanup lists only ready items. unit tests test_ready_for_notes_roundtrip and test_cleanup_candidate_filtering confirm behavior. |
 | R007 | differentiator | active | M002/S01 | M002/S02, M002/S03 | mapped |
 | R008 | integration | active | M002/S02 | M002/S03 | mapped |
-| R009 | operability | active | M001/S04 | M001/S05 | mapped |
-| R010 | core-capability | active | M003/S01 | none | mapped |
+| R009 | operability | validated | M001/S04 | M001/S05, M002-z48awz/S06 | cleanup command defaults to list-only mode with file sizes. Deletion requires --delete + (--all | --video-id). Protected files survive. --delete without selector returns exit code 1. No auto-deletion path exists. |
+| R010 | core-capability | active | M002-z48awz/S07 | none | mapped |
 | R011 | differentiator | active | M002/S03 | M002/S02 | mapped |
-| R012 | continuity | active | M001/S02 | M001/S03, M001/S05 | mapped |
+| R012 | continuity | validated | M001/S02 | M001/S02, M001/S03, M001/S05, M002-z48awz/S04, M002-z48awz/S06 | All batch commands check status.json before acting. downloaded=true skips re-download; transcribed=true skips re-transcription. S05 proof phase 3 confirms failed item remains in artifact directory with reason persisted, ready for retry. |
 | R020 | differentiator | deferred | none | none | unmapped |
 | R021 | anti-feature | deferred | none | none | unmapped |
 | R030 | anti-feature | out-of-scope | none | none | n/a |
@@ -221,7 +221,7 @@ This file is the explicit capability and coverage contract for the project.
 
 ## Coverage Summary
 
-- Active requirements: 7
-- Mapped to slices: 7
-- Validated: 5 (R001, R002, R003, R004, R005)
+- Active requirements: 4
+- Mapped to slices: 4
+- Validated: 8 (R001, R002, R003, R004, R005, R006, R009, R012)
 - Unmapped active requirements: 0

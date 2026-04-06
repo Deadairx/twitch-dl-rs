@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::downloader::StreamInfo;
 use crate::twitch::VodEntry;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ArtifactMetadata {
     schema_version: u32,
     video_id: String,
@@ -20,6 +20,12 @@ pub struct ArtifactMetadata {
     selected_bandwidth: Option<u64>,
     selected_resolution: Option<String>,
     selected_codecs: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uploaded_at: Option<String>,
     is_audio_only: bool,
 }
 
@@ -30,12 +36,18 @@ impl ArtifactMetadata {
         output_file: &Path,
         stream: &StreamInfo,
         used_auth_token: bool,
+        vod_context: Option<(&str, &str, &str)>,
     ) -> Result<Self, std::io::Error> {
         let output_size_bytes = fs::metadata(output_file)?.len();
         let downloaded_at_epoch_s = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+
+        let (title, channel, uploaded_at) = match vod_context {
+            Some((t, c, u)) => (Some(t.to_string()), Some(c.to_string()), Some(u.to_string())),
+            None => (None, None, None),
+        };
 
         Ok(Self {
             schema_version: 1,
@@ -53,6 +65,9 @@ impl ArtifactMetadata {
             selected_bandwidth: stream.bandwidth,
             selected_resolution: stream.resolution.clone(),
             selected_codecs: stream.codecs.clone(),
+            title,
+            channel,
+            uploaded_at,
             is_audio_only: stream.is_audio_only,
         })
     }
@@ -77,6 +92,18 @@ pub fn write_metadata(
     let json = serde_json::to_string_pretty(metadata)?;
     fs::write(&metadata_path, format!("{json}\n"))?;
     Ok(metadata_path)
+}
+
+pub fn read_metadata(
+    artifact_dir: &Path,
+) -> Result<Option<ArtifactMetadata>, Box<dyn std::error::Error>> {
+    let metadata_path = artifact_dir.join("metadata.json");
+    if !metadata_path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(metadata_path)?;
+    let metadata = serde_json::from_str(&content)?;
+    Ok(Some(metadata))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -378,5 +405,61 @@ mod tests {
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].0, "111111");
+    }
+
+    #[test]
+    fn test_metadata_backward_compat() {
+        // Deserialize old schema without title, channel, uploaded_at fields
+        let old_json = r#"{"schema_version":1,"video_id":"123","source_url":"https://twitch.tv/videos/123","downloaded_at_epoch_s":0,"used_auth_token":false,"output_file":"audio.m4a","output_size_bytes":100,"stream_name":null,"selected_bandwidth":null,"selected_resolution":null,"selected_codecs":null,"is_audio_only":true}"#;
+        let metadata: ArtifactMetadata = serde_json::from_str(old_json).unwrap();
+        assert_eq!(metadata.video_id, "123");
+        assert_eq!(metadata.title, None);
+        assert_eq!(metadata.channel, None);
+        assert_eq!(metadata.uploaded_at, None);
+        assert_eq!(metadata.is_audio_only, true);
+    }
+
+    #[test]
+    fn test_metadata_roundtrip() {
+        let dir = tempdir().unwrap();
+        let artifact_dir = dir.path().join("123456");
+        fs::create_dir_all(&artifact_dir).unwrap();
+
+        // Create a mock StreamInfo for from_download
+        use crate::downloader::StreamInfo;
+        let stream = StreamInfo {
+            playlist_url: "https://example.com/playlist.m3u8".to_string(),
+            name: Some("test_stream".to_string()),
+            bandwidth: Some(5000000),
+            resolution: Some("1920x1080".to_string()),
+            codecs: Some("avc1.640028,mp4a.40.2".to_string()),
+            is_audio_only: false,
+        };
+
+        // Create a dummy video file so from_download can stat it
+        let video_path = artifact_dir.join("video.mp4");
+        fs::write(&video_path, b"dummy video content").unwrap();
+
+        // Create metadata with vod_context
+        let metadata = ArtifactMetadata::from_download(
+            "123456",
+            "https://www.twitch.tv/videos/123456",
+            &video_path,
+            &stream,
+            false,
+            Some(("Test VOD", "testchan", "2026-01-01T00:00:00Z")),
+        ).unwrap();
+
+        // Serialize to JSON
+        let json = serde_json::to_string_pretty(&metadata).unwrap();
+        
+        // Deserialize back
+        let deserialized: ArtifactMetadata = serde_json::from_str(&json).unwrap();
+        
+        // Verify new fields are populated
+        assert_eq!(deserialized.title, Some("Test VOD".to_string()));
+        assert_eq!(deserialized.channel, Some("testchan".to_string()));
+        assert_eq!(deserialized.uploaded_at, Some("2026-01-01T00:00:00Z".to_string()));
+        assert_eq!(deserialized.video_id, "123456");
     }
 }
