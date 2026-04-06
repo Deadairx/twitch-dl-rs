@@ -8,7 +8,7 @@
   - Estimate: 30m
   - Files: src/artifact.rs, src/main.rs
   - Verify: cargo test artifact::tests 2>&1 | grep -E 'test result|FAILED' && cargo build 2>&1 | grep -E 'error|warning'
-- [ ] **T02: Add cleanup CLI command with candidate listing and --delete flag** — Add a `cleanup` CLI subcommand that lists `ready_for_notes == true` artifacts as deletion candidates, showing per-item file sizes for `audio.m4a` and `transcript.srt`. With `--delete --all` or `--delete <video_id>`, remove those two files for the specified item(s). Never touch `transcript.vtt`, `metadata.json`, `status.json`, or `source_url.txt`. Eligibility is gated on `ready_for_notes == true` from the status field — NOT on file presence alone. Items with `suspect` or `failed` outcomes never appear as candidates.
+- [x] **T02: Add cleanup CLI command with candidate listing and --delete flag for safe artifact cleanup** — Add a `cleanup` CLI subcommand that lists `ready_for_notes == true` artifacts as deletion candidates, showing per-item file sizes for `audio.m4a` and `transcript.srt`. With `--delete --all` or `--delete <video_id>`, remove those two files for the specified item(s). Never touch `transcript.vtt`, `metadata.json`, `status.json`, or `source_url.txt`. Eligibility is gated on `ready_for_notes == true` from the status field — NOT on file presence alone. Items with `suspect` or `failed` outcomes never appear as candidates.
 
 CLI contract:
 - `cleanup --output-root <dir>` — lists candidates with file sizes, no deletion

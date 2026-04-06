@@ -90,6 +90,17 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        cli::CliCommand::Cleanup {
+            output_root,
+            delete,
+            delete_all,
+            video_id,
+        } => {
+            if let Err(error) = cleanup(&output_root, delete, delete_all, video_id).await {
+                eprintln!("Cleanup failed: {error}");
+                std::process::exit(1);
+            }
+        }
     }
 }
 
@@ -459,6 +470,152 @@ async fn transcribe_all(
         }
     }
     Ok(())
+}
+
+async fn cleanup(
+    output_root: &std::path::Path,
+    delete: bool,
+    delete_all: bool,
+    video_id: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Validate delete mode arguments
+    if delete {
+        if !delete_all && video_id.is_none() {
+            return Err("Error: --delete requires either --all or --video-id <video_id>".into());
+        }
+        if delete_all && video_id.is_some() {
+            return Err("Error: Cannot use both --all and --video-id together".into());
+        }
+    }
+
+    // Scan all artifacts and find cleanup candidates
+    let items = artifact::scan_artifact_statuses(output_root)?;
+    let mut candidates = Vec::new();
+
+    for (vid, status_opt) in &items {
+        if let Some(status) = status_opt {
+            // Only include if ready_for_notes is true
+            // and transcription_outcome is "completed" (not "suspect" or "failed")
+            if status.ready_for_notes
+                && status.transcription_outcome.as_deref() == Some("completed")
+            {
+                let artifact_dir = output_root.join(vid);
+                let audio_path = artifact_dir.join("audio.m4a");
+                let transcript_path = artifact_dir.join("transcript.srt");
+
+                let audio_size = std::fs::metadata(&audio_path).map(|m| m.len()).ok();
+                let transcript_size = std::fs::metadata(&transcript_path).map(|m| m.len()).ok();
+
+                candidates.push((
+                    vid.clone(),
+                    audio_path,
+                    transcript_path,
+                    audio_size,
+                    transcript_size,
+                ));
+            }
+        }
+    }
+
+    if candidates.is_empty() {
+        println!("No cleanup candidates found.");
+        return Ok(());
+    }
+
+    // Display candidates with file sizes
+    println!("Cleanup candidates ({} found):", candidates.len());
+    println!("{}", "-".repeat(70));
+    println!(
+        "{:<15} {:<20} {:<20}",
+        "VIDEO_ID", "audio.m4a", "transcript.srt"
+    );
+    println!("{}", "-".repeat(70));
+
+    let mut total_bytes = 0u64;
+    for (vid, _audio_path, _transcript_path, audio_size, transcript_size) in &candidates {
+        let audio_display = audio_size
+            .map(|s| format_bytes(s))
+            .unwrap_or_else(|| "(missing)".to_string());
+        let transcript_display = transcript_size
+            .map(|s| format_bytes(s))
+            .unwrap_or_else(|| "(missing)".to_string());
+
+        println!("{:<15} {:<20} {:<20}", vid, audio_display, transcript_display);
+
+        if let Some(size) = audio_size {
+            total_bytes += size;
+        }
+        if let Some(size) = transcript_size {
+            total_bytes += size;
+        }
+    }
+
+    println!("{}", "-".repeat(70));
+    println!("Total space to be freed: {}", format_bytes(total_bytes));
+
+    // If no deletion requested, return now
+    if !delete {
+        return Ok(());
+    }
+
+    // Perform deletion
+    let to_delete: Vec<_> = if delete_all {
+        candidates.clone()
+    } else if let Some(ref vid) = video_id {
+        candidates
+            .into_iter()
+            .filter(|(v, _, _, _, _)| v == vid)
+            .collect()
+    } else {
+        return Err("Internal error: delete mode not properly validated".into());
+    };
+
+    if to_delete.is_empty() {
+        if let Some(ref vid) = video_id {
+            println!("Video {} is not a cleanup candidate", vid);
+        }
+        return Ok(());
+    }
+
+    println!("\nDeleting {} artifact(s)...", to_delete.len());
+    for (vid, audio_path, transcript_path, _, _) in to_delete {
+        let mut deleted_count = 0;
+        
+        if audio_path.exists() {
+            std::fs::remove_file(&audio_path)?;
+            println!("  Deleted {}/audio.m4a", vid);
+            deleted_count += 1;
+        }
+        
+        if transcript_path.exists() {
+            std::fs::remove_file(&transcript_path)?;
+            println!("  Deleted {}/transcript.srt", vid);
+            deleted_count += 1;
+        }
+
+        if deleted_count == 0 {
+            println!("  Warning: {} had no eligible files to delete", vid);
+        }
+    }
+
+    Ok(())
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
+    let mut size = bytes as f64;
+    let mut unit_idx = 0;
+
+    while size >= 1024.0 && unit_idx < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_idx += 1;
+    }
+
+    if unit_idx == 0 {
+        format!("{} {}", bytes, UNITS[0])
+    } else {
+        format!("{:.1} {}", size, UNITS[unit_idx])
+    }
 }
 
 fn now_epoch_s() -> u64 {

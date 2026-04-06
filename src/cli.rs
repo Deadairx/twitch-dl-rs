@@ -42,6 +42,12 @@ pub enum CliCommand {
         output_root: PathBuf,
         continue_on_error: bool,
     },
+    Cleanup {
+        output_root: PathBuf,
+        delete: bool,
+        delete_all: bool,
+        video_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -237,6 +243,34 @@ pub fn parse_args() -> Cli {
                         .action(ArgAction::SetTrue),
                 ),
         )
+        .subcommand(
+            Command::new("cleanup")
+                .about("List and optionally delete ready-for-notes artifact files")
+                .arg(
+                    Arg::new("output-root")
+                        .long("output-root")
+                        .help("Directory where artifact folders are stored")
+                        .default_value("artifacts"),
+                )
+                .arg(
+                    Arg::new("delete")
+                        .long("delete")
+                        .help("Enable deletion mode")
+                        .action(ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("all")
+                        .long("all")
+                        .help("Delete all candidates (use with --delete)")
+                        .action(ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("video-id")
+                        .long("video-id")
+                        .help("Delete specific artifact by video_id (use with --delete)")
+                        .value_name("VIDEO_ID"),
+                ),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -342,6 +376,25 @@ pub fn parse_args() -> Cli {
                 ),
                 continue_on_error: transcribe_all_matches.get_flag("continue-on-error"),
             },
+        },
+        Some(("cleanup", cleanup_matches)) => {
+            let output_root = PathBuf::from(
+                cleanup_matches
+                    .get_one::<String>("output-root")
+                    .expect("output-root has a default value"),
+            );
+            let delete = cleanup_matches.get_flag("delete");
+            let delete_all = cleanup_matches.get_flag("all");
+            let video_id = cleanup_matches.get_one::<String>("video-id").cloned();
+            
+            Cli {
+                command: CliCommand::Cleanup {
+                    output_root,
+                    delete,
+                    delete_all,
+                    video_id,
+                },
+            }
         },
         _ => unreachable!("clap enforces a subcommand"),
     }

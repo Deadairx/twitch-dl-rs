@@ -318,4 +318,65 @@ mod tests {
         assert_eq!(read_back.transcribed, true);
         assert_eq!(read_back.transcription_outcome, Some("completed".to_string()));
     }
+
+    #[test]
+    fn test_cleanup_candidate_filtering() {
+        // Verify that scan_artifact_statuses correctly identifies cleanup candidates
+        let dir = tempdir().unwrap();
+
+        // Create a ready-for-notes candidate with completed outcome
+        let artifact_dir_1 = dir.path().join("111111");
+        fs::create_dir_all(&artifact_dir_1).unwrap();
+        let mut status_1 = ProcessStatus::new("111111", "https://www.twitch.tv/videos/111111");
+        status_1.downloaded = true;
+        status_1.transcribed = true;
+        status_1.ready_for_notes = true;
+        status_1.transcription_outcome = Some("completed".to_string());
+        write_status(&artifact_dir_1, &status_1).unwrap();
+        fs::write(artifact_dir_1.join("audio.m4a"), "test").unwrap();
+        fs::write(artifact_dir_1.join("transcript.srt"), "test").unwrap();
+
+        // Create a ready-for-notes candidate with suspect outcome (should NOT be candidate)
+        let artifact_dir_2 = dir.path().join("222222");
+        fs::create_dir_all(&artifact_dir_2).unwrap();
+        let mut status_2 = ProcessStatus::new("222222", "https://www.twitch.tv/videos/222222");
+        status_2.downloaded = true;
+        status_2.transcribed = true;
+        status_2.ready_for_notes = true;
+        status_2.transcription_outcome = Some("suspect".to_string());
+        write_status(&artifact_dir_2, &status_2).unwrap();
+        fs::write(artifact_dir_2.join("audio.m4a"), "test").unwrap();
+
+        // Create a NOT ready-for-notes artifact with completed outcome (should NOT be candidate)
+        let artifact_dir_3 = dir.path().join("333333");
+        fs::create_dir_all(&artifact_dir_3).unwrap();
+        let mut status_3 = ProcessStatus::new("333333", "https://www.twitch.tv/videos/333333");
+        status_3.downloaded = true;
+        status_3.transcribed = true;
+        status_3.ready_for_notes = false;
+        status_3.transcription_outcome = Some("completed".to_string());
+        write_status(&artifact_dir_3, &status_3).unwrap();
+        fs::write(artifact_dir_3.join("audio.m4a"), "test").unwrap();
+
+        // Scan all artifacts
+        let results = scan_artifact_statuses(dir.path()).unwrap();
+        assert_eq!(results.len(), 3);
+
+        // Only 111111 should be a valid cleanup candidate
+        // (ready_for_notes=true AND transcription_outcome="completed")
+        let candidates: Vec<_> = results
+            .iter()
+            .filter(|(_, status_opt)| {
+                if let Some(status) = status_opt {
+                    status.ready_for_notes
+                        && status.transcription_outcome.as_deref() == Some("completed")
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].0, "111111");
+    }
 }
