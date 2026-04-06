@@ -58,4 +58,14 @@ Append-only. Never edit or remove existing entries. Add a new entry to supersede
 **Context:** S01's GQL metadata fetch is critical path, but GQL API availability is not under operator control. Without --skip-metadata, a Twitch API issue blocks all downloads.
 **Lesson:** For any CLI command with external API dependencies in the critical path, provide a non-required escape hatch (flag or env var) that disables the dependency and proceeds with reduced functionality. Document it as an exception path, not the happy path. This keeps the system operational during transient API issues.
 
+### Deduplication by HashSet scales better than nested loops
+**Context:** S02 merged queued items (from scan_queue_files) with artifact items (from scan_artifact_statuses). Deduplication needed to ensure a video_id appearing in both sources displayed only once.
+**Pattern:** Collect one set's primary key into a HashSet, then filter the other set by membership: `let ids: HashSet<_> = artifacts.iter().map(|(id, _)| id.clone()).collect(); let deduped: Vec<_> = queued.into_iter().filter(|v| !ids.contains(&v.id)).collect();`
+**Lesson:** O(n + m) time complexity with clear intent. Superior to nested loops (O(n*m)) for any non-trivial dataset sizes. The pattern is reusable wherever two sources need merging with single-instance constraint (e.g., S05's queue-aware filtering). Always collect the smaller set into HashSet to minimize memory overhead.
+
+### Graceful degradation via unwrap_or reduces panic surface
+**Context:** S02 display reads metadata.json, status.json, and queue files, any of which might be missing or incomplete. Rather than panicking on Option::None, every missing field defaulted to em dash (—).
+**Pattern:** `metadata.as_ref().and_then(|m| m.title.as_deref()).unwrap_or("—").to_string()` — chains safely through nullable intermediate values, defaults to a meaningful fallback.
+**Lesson:** For any display-layer code reading durable artifacts, defaulting missing fields to a visual placeholder (em dash, "N/A", "unknown") is always preferable to panicking. Operator can immediately see incomplete data and decide whether to investigate or proceed. Prevents a single missing field from blocking visibility of the entire artifact.
+
 ---

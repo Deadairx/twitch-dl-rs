@@ -39,6 +39,12 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        cli::CliCommand::QueueVideo { url, output_root } => {
+            if let Err(error) = queue_video(&url, &output_root).await {
+                eprintln!("Queue-video failed: {error}");
+                std::process::exit(1);
+            }
+        }
         cli::CliCommand::Process {
             channel,
             output_root,
@@ -303,6 +309,60 @@ async fn process_channel(
         }
     }
 
+    Ok(())
+}
+
+async fn queue_video(
+    url: &str,
+    output_root: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let video_id = twitch::extract_video_id(url)?;
+    
+    let (title, channel, uploaded_at) = match twitch::fetch_vod_metadata_by_id(&video_id).await {
+        Ok((title, channel, uploaded_at)) => (title, channel, uploaded_at),
+        Err(e) => {
+            eprintln!("Failed to resolve VOD metadata: {e}");
+            return Err(format!("GQL metadata fetch failed: {e}").into());
+        }
+    };
+    
+    // Read existing queue for this channel, or start with empty vec if file doesn't exist
+    let existing_entries = match artifact::read_queue_file(output_root, &channel) {
+        Ok(queue_file) => queue_file.queued,
+        Err(_) => vec![],
+    };
+    
+    // Check if this video_id is already queued
+    if existing_entries.iter().any(|v| v.video_id == video_id) {
+        println!("Already queued: {video_id}");
+        return Ok(());
+    }
+    
+    // Create new VodEntry with duration placeholder
+    let new_entry = twitch::VodEntry {
+        channel: channel.clone(),
+        title,
+        url: url.to_string(),
+        video_id: video_id.clone(),
+        uploaded_at,
+        duration: "PT0S".to_string(),
+    };
+    
+    // Append new entry to existing queue
+    let mut queued = existing_entries;
+    queued.push(new_entry);
+    
+    // Write updated queue file with default filter settings
+    let queue_path = artifact::write_queue_file(
+        output_root,
+        &channel,
+        false,
+        0,
+        queued,
+        vec![],
+    )?;
+    
+    println!("Queued {video_id} into {}", queue_path.display());
     Ok(())
 }
 

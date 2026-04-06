@@ -591,4 +591,61 @@ mod tests {
         assert_eq!(deduped.len(), 1);
         assert_eq!(deduped[0].video_id, "200");
     }
+
+    #[test]
+    fn test_queue_video_idempotent_dedup() {
+        let dir = tempdir().unwrap();
+        let queue_dir = dir.path().join("queues");
+        fs::create_dir_all(&queue_dir).unwrap();
+
+        // Step 1: Write a queue file with one entry (video_id "111")
+        let queued = vec![VodEntry {
+            channel: "testchan".to_string(),
+            title: "Test VOD 1".to_string(),
+            url: "https://www.twitch.tv/videos/111".to_string(),
+            video_id: "111".to_string(),
+            uploaded_at: "2026-01-01T00:00:00Z".to_string(),
+            duration: "PT3600S".to_string(),
+        }];
+        let _queue_path = write_queue_file(
+            dir.path(),
+            "testchan",
+            false,
+            0,
+            queued.clone(),
+            vec![],
+        ).unwrap();
+
+        // Step 2: Read the queue file back and verify dedup triggers on same video_id
+        let read_back = read_queue_file(dir.path(), "testchan").unwrap();
+        assert_eq!(read_back.queued.len(), 1);
+        assert!(read_back.queued.iter().any(|v| v.video_id == "111"));
+
+        // Step 3: Write a second entry (video_id "222") to the same queue
+        let mut queued_updated = read_back.queued;
+        queued_updated.push(VodEntry {
+            channel: "testchan".to_string(),
+            title: "Test VOD 2".to_string(),
+            url: "https://www.twitch.tv/videos/222".to_string(),
+            video_id: "222".to_string(),
+            uploaded_at: "2026-01-02T00:00:00Z".to_string(),
+            duration: "PT3600S".to_string(),
+        });
+        let _queue_path = write_queue_file(
+            dir.path(),
+            "testchan",
+            false,
+            0,
+            queued_updated,
+            vec![],
+        ).unwrap();
+
+        // Step 4: Read back and assert we have exactly 2 entries
+        let final_queue = read_queue_file(dir.path(), "testchan").unwrap();
+        assert_eq!(final_queue.queued.len(), 2);
+        
+        let ids: Vec<_> = final_queue.queued.iter().map(|v| v.video_id.as_str()).collect();
+        assert!(ids.contains(&"111"));
+        assert!(ids.contains(&"222"));
+    }
 }

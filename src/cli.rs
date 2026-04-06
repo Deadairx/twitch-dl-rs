@@ -23,6 +23,10 @@ pub enum CliCommand {
         past_broadcasts_only: bool,
         min_seconds: u64,
     },
+    QueueVideo {
+        url: String,
+        output_root: PathBuf,
+    },
     Process {
         channel: String,
         output_root: PathBuf,
@@ -149,6 +153,19 @@ pub fn parse_args() -> Cli {
                         .value_parser(clap::value_parser!(u64))
                         .default_value("600"),
                 ),
+        )
+        .subcommand(
+            Command::new("queue-video")
+                .about("Queue a single Twitch VOD by URL")
+                .arg(
+                    Arg::new("url")
+                        .help("The Twitch video URL to queue")
+                        .required(true)
+                        .index(1),
+                )
+                .arg(output_root_arg(
+                    "Directory where artifact folders and queue files are created (default: VOD_PIPELINE_OUTPUT_ROOT or artifacts)",
+                )),
         )
         .subcommand(
             Command::new("process")
@@ -308,6 +325,19 @@ pub fn parse_args() -> Cli {
                 min_seconds: *queue_matches
                     .get_one::<u64>("min-seconds")
                     .expect("min-seconds has a default value"),
+            },
+        },
+        Some(("queue-video", queue_video_matches)) => Cli {
+            command: CliCommand::QueueVideo {
+                url: queue_video_matches
+                    .get_one::<String>("url")
+                    .expect("url is required by clap")
+                    .clone(),
+                output_root: PathBuf::from(
+                    queue_video_matches
+                        .get_one::<String>("output-root")
+                        .expect("output-root has a default value"),
+                ),
             },
         },
         Some(("process", process_matches)) => Cli {
