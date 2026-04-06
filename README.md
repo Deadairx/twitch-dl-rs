@@ -1,57 +1,86 @@
-Download a video from Twitch
+## vod-pipeline
 
-inspired by twitch-dl
+Queue-first media pipeline for Twitch VOD artifacts.
+
+The binary name is `vod-pipeline`.
 
 ## Requirements
+
 - [ffmpeg](https://ffmpeg.org/download.html)
+- `hear` available on `PATH` for transcription
 
 Optional:
+
 - `TWITCH_DL_AUTH` or `--auth-token` for subscriber-only VODs
 
-## Usage
-`twitch-dl-rs download <video-link>` downloads a Twitch VOD into an artifact directory
+## Install
 
-`twitch-dl-rs queue <channel>` builds a backlog queue from a Twitch channel's archive page
+```bash
+cargo install --path .
+```
 
-`twitch-dl-rs process <channel>` builds a queue, downloads each queued VOD, and transcribes it with `mlx-whisper`
+This installs `vod-pipeline` into Cargo's bin directory, usually `~/.cargo/bin`.
 
-### Options
-`-a, --auth-token <TEXT>`	Authentication token, passed to Twitch to access
-subscriber only VODs. Can be copied from the auth_token cookie in any browser
-logged in on Twitch.
+## Default Artifact Root
 
-`--output-root <DIR>`	Root directory where artifact folders are created. Defaults to `artifacts`.
+Set a canonical artifact root once so the CLI can run from anywhere:
 
-`--quality <audio-only|lowest|highest>`	Preferred stream type. Defaults to `audio-only` for transcription-oriented workflows.
+```bash
+export VOD_PIPELINE_OUTPUT_ROOT="$HOME/artifacts/twitch"
+```
 
-## Output
+Output root precedence is:
 
-For a VOD like `https://www.twitch.tv/videos/123456789`, the downloader creates:
+1. `--output-root <DIR>`
+2. `VOD_PIPELINE_OUTPUT_ROOT`
+3. `artifacts`
+
+## Commands
+
+```bash
+vod-pipeline download <video-link>
+vod-pipeline queue <channel>
+vod-pipeline process <channel>
+vod-pipeline status
+vod-pipeline download-all <channel>
+vod-pipeline transcribe-all
+vod-pipeline cleanup
+```
+
+Common options:
+
+- `-a, --auth-token <TEXT>` authenticates subscriber-only VOD access
+- `--output-root <DIR>` overrides `VOD_PIPELINE_OUTPUT_ROOT` for a single run
+- `--quality <audio-only|lowest|highest>` defaults to `audio-only`
+
+## Artifact Layout
+
+For a VOD like `https://www.twitch.tv/videos/123456789`, the pipeline creates:
 
 ```text
-artifacts/123456789/
+<output-root>/123456789/
   metadata.json
   source_url.txt
   audio.m4a
+  status.json
+  transcript.srt
+  transcript.vtt
+
+<output-root>/queues/
+  <channel>.json
 ```
 
-If the selected stream is not audio-only, the artifact file will be `video.mp4` instead.
+If the selected stream is not audio-only, the media artifact is `video.mp4` instead of `audio.m4a`.
 
-This is Phase 1 of the larger pipeline. Transcription, notes, and memory storage come next.
+`status.json` is the durable per-artifact record used for resume behavior, failure visibility, and cleanup eligibility.
 
 ## Queueing A Backlog
 
-Build a queue from a Twitch channel name:
-
 ```bash
-cargo run -- queue theprimeagen --past-broadcasts-only --min-seconds 600 --limit 25
+vod-pipeline queue theprimeagen --past-broadcasts-only --min-seconds 600 --limit 25
 ```
 
-This fetches recent archive VODs, skips video IDs that already have artifact directories in `artifacts/`, and writes the queue to:
-
-```text
-artifacts/queues/theprimeagen.json
-```
+This fetches recent archive VODs, skips IDs that already have artifact directories in the output root, and writes the queue to `queues/theprimeagen.json`.
 
 Useful flags:
 
@@ -59,19 +88,29 @@ Useful flags:
 - `--min-seconds 600` skips short entries under 10 minutes
 - `--limit 25` caps how much backlog to fetch on one run
 
-## Processing A Queue
+## Processing
 
-Run the end-to-end backlog processor for a channel:
+Run the end-to-end channel processor:
 
 ```bash
-cargo run -- process theprimeagen --past-broadcasts-only --min-seconds 600 --limit 5 --continue-on-error
+vod-pipeline process theprimeagen --past-broadcasts-only --min-seconds 600 --limit 5 --continue-on-error
 ```
 
 Current `process` behavior:
 
 - builds the filtered queue
 - downloads each queued VOD using the selected stream quality
-- transcribes each artifact to `transcript.txt` using `mlx-whisper` / `mlx_whisper`
-- writes per-VOD `status.json` so reruns can resume cleanly
+- transcribes each artifact with `hear`
+- writes `transcript.srt` and `transcript.vtt`
+- persists per-VOD `status.json` so reruns can resume cleanly
 
-This stage does not yet generate `notes.md`; it prepares artifact directories for that next step.
+For staged operation, use:
+
+```bash
+vod-pipeline download-all theprimeagen
+vod-pipeline transcribe-all --continue-on-error
+vod-pipeline status
+vod-pipeline cleanup
+```
+
+The pipeline does not generate notes yet. It prepares durable transcript artifacts for that next layer.

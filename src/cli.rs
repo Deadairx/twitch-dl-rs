@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::{Arg, ArgAction, Command};
 
+const OUTPUT_ROOT_ENV: &str = "VOD_PIPELINE_OUTPUT_ROOT";
+
 pub struct Cli {
     pub command: CliCommand,
 }
@@ -68,10 +70,18 @@ impl QualityPreference {
     }
 }
 
+fn output_root_arg(help: &'static str) -> Arg {
+    Arg::new("output-root")
+        .long("output-root")
+        .help(help)
+        .env(OUTPUT_ROOT_ENV)
+        .default_value("artifacts")
+}
+
 pub fn parse_args() -> Cli {
-    let matches = Command::new("twitch-dl-rs")
+    let matches = Command::new("vod-pipeline")
         .version("0.1.0")
-        .about("Download a Twitch VOD into a local artifact directory")
+        .about("Queue-first media pipeline for Twitch VOD artifacts")
         .subcommand_required(true)
         .arg_required_else_help(true)
         .subcommand(
@@ -89,12 +99,9 @@ pub fn parse_args() -> Cli {
                         .long("auth-token")
                         .help("Authentication token for subscriber-only VODs"),
                 )
-                .arg(
-                    Arg::new("output-root")
-                        .long("output-root")
-                        .help("Directory where artifact folders are created")
-                        .default_value("artifacts"),
-                )
+                .arg(output_root_arg(
+                    "Directory where artifact folders are created (default: VOD_PIPELINE_OUTPUT_ROOT or artifacts)",
+                ))
                 .arg(
                     Arg::new("quality")
                         .long("quality")
@@ -112,12 +119,9 @@ pub fn parse_args() -> Cli {
                         .required(true)
                         .index(1),
                 )
-                .arg(
-                    Arg::new("output-root")
-                        .long("output-root")
-                        .help("Directory where artifact folders and queue files are created")
-                        .default_value("artifacts"),
-                )
+                .arg(output_root_arg(
+                    "Directory where artifact folders and queue files are created (default: VOD_PIPELINE_OUTPUT_ROOT or artifacts)",
+                ))
                 .arg(
                     Arg::new("limit")
                         .long("limit")
@@ -148,12 +152,9 @@ pub fn parse_args() -> Cli {
                         .required(true)
                         .index(1),
                 )
-                .arg(
-                    Arg::new("output-root")
-                        .long("output-root")
-                        .help("Directory where artifact folders and queue files are created")
-                        .default_value("artifacts"),
-                )
+                .arg(output_root_arg(
+                    "Directory where artifact folders and queue files are created (default: VOD_PIPELINE_OUTPUT_ROOT or artifacts)",
+                ))
                 .arg(
                     Arg::new("limit")
                         .long("limit")
@@ -191,12 +192,9 @@ pub fn parse_args() -> Cli {
         .subcommand(
             Command::new("status")
                 .about("Show status of all downloaded/transcribed artifacts")
-                .arg(
-                    Arg::new("output-root")
-                        .long("output-root")
-                        .help("Directory where artifact folders are stored")
-                        .default_value("artifacts"),
-                ),
+                .arg(output_root_arg(
+                    "Directory where artifact folders are stored (default: VOD_PIPELINE_OUTPUT_ROOT or artifacts)",
+                )),
         )
         .subcommand(
             Command::new("download-all")
@@ -207,12 +205,9 @@ pub fn parse_args() -> Cli {
                         .required(true)
                         .index(1),
                 )
-                .arg(
-                    Arg::new("output-root")
-                        .long("output-root")
-                        .help("Directory where artifact folders and queue files are stored")
-                        .default_value("artifacts"),
-                )
+                .arg(output_root_arg(
+                    "Directory where artifact folders and queue files are stored (default: VOD_PIPELINE_OUTPUT_ROOT or artifacts)",
+                ))
                 .arg(
                     Arg::new("quality")
                         .long("quality")
@@ -230,12 +225,9 @@ pub fn parse_args() -> Cli {
         .subcommand(
             Command::new("transcribe-all")
                 .about("Transcribe all downloaded-but-not-transcribed artifacts")
-                .arg(
-                    Arg::new("output-root")
-                        .long("output-root")
-                        .help("Directory where artifact folders are stored")
-                        .default_value("artifacts"),
-                )
+                .arg(output_root_arg(
+                    "Directory where artifact folders are stored (default: VOD_PIPELINE_OUTPUT_ROOT or artifacts)",
+                ))
                 .arg(
                     Arg::new("continue-on-error")
                         .long("continue-on-error")
@@ -246,12 +238,9 @@ pub fn parse_args() -> Cli {
         .subcommand(
             Command::new("cleanup")
                 .about("List and optionally delete ready-for-notes artifact files")
-                .arg(
-                    Arg::new("output-root")
-                        .long("output-root")
-                        .help("Directory where artifact folders are stored")
-                        .default_value("artifacts"),
-                )
+                .arg(output_root_arg(
+                    "Directory where artifact folders are stored (default: VOD_PIPELINE_OUTPUT_ROOT or artifacts)",
+                ))
                 .arg(
                     Arg::new("delete")
                         .long("delete")
@@ -386,7 +375,7 @@ pub fn parse_args() -> Cli {
             let delete = cleanup_matches.get_flag("delete");
             let delete_all = cleanup_matches.get_flag("all");
             let video_id = cleanup_matches.get_one::<String>("video-id").cloned();
-            
+
             Cli {
                 command: CliCommand::Cleanup {
                     output_root,
@@ -395,7 +384,7 @@ pub fn parse_args() -> Cli {
                     video_id,
                 },
             }
-        },
+        }
         _ => unreachable!("clap enforces a subcommand"),
     }
 }
