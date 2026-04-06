@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-04-06T19:01:03.114Z",
+  "exported_at": "2026-04-06T19:17:20.902Z",
   "milestones": [
     {
       "id": "M001",
@@ -802,7 +802,7 @@
       "slice_id": "S01",
       "id": "T01",
       "title": "Extend ArtifactMetadata schema and add GQL metadata fetch",
-      "status": "pending",
+      "status": "complete",
       "one_liner": "",
       "narrative": "",
       "verification_result": "",
@@ -837,19 +837,25 @@
       "milestone_id": "M002-z48awz",
       "slice_id": "S01",
       "id": "T02",
-      "title": "Wire vod context into download paths and add --skip-metadata flag",
-      "status": "pending",
-      "one_liner": "",
-      "narrative": "",
-      "verification_result": "",
+      "title": "Wired GQL metadata fetch into download_vod with pre-dir-creation ordering and added --skip-metadata CLI flag; bare download now writes status.json",
+      "status": "complete",
+      "one_liner": "Wired GQL metadata fetch into download_vod with pre-dir-creation ordering and added --skip-metadata CLI flag; bare download now writes status.json",
+      "narrative": "T01 delivered the schema and fetch_vod_metadata_by_id. This task connected those pieces to the two actual download call paths.\n\ncli.rs: Added skip_metadata: bool to CliCommand::Download and the --skip-metadata flag to the download subcommand. Threaded get_flag(\"skip-metadata\") into the struct in parse_args.\n\nmain.rs download_vod: Extended signature with vod_context and skip_metadata. Inserted context resolution block between stream selection and prepare_artifact_dir — GQL failure returns before dir creation. Added status.json write after write_metadata in the bare download path.\n\ndownload_vod_to_artifact: Updated to pass Some((vod.title, vod.channel, vod.uploaded_at)) as vod_context and false for skip_metadata — no extra GQL call made.",
+      "verification_result": "cargo build: clean (1 dead_code warning on read_metadata, pre-existing). cargo test: 16/16 pass. ./target/debug/vod-pipeline download --help | grep skip-metadata: flag present with correct description.",
       "duration": "",
-      "completed_at": null,
+      "completed_at": "2026-04-06T19:17:20.887Z",
       "blocker_discovered": false,
-      "deviations": "",
-      "known_issues": "",
-      "key_files": [],
-      "key_decisions": [],
-      "full_summary_md": "",
+      "deviations": "None.",
+      "known_issues": "read_metadata in artifact.rs generates a dead_code warning; it will be used by future tasks. Not a bug.",
+      "key_files": [
+        "src/cli.rs",
+        "src/main.rs"
+      ],
+      "key_decisions": [
+        "GQL fetch occurs after stream resolution but before prepare_artifact_dir — ensures no artifact dir is created if metadata fetch fails",
+        "vod_context ownership: fetch returns owned Strings, then borrow as &str for from_download — avoids lifetime issues cleanly"
+      ],
+      "full_summary_md": "---\nid: T02\nparent: S01\nmilestone: M002-z48awz\nkey_files:\n  - src/cli.rs\n  - src/main.rs\nkey_decisions:\n  - GQL fetch occurs after stream resolution but before prepare_artifact_dir — ensures no artifact dir is created if metadata fetch fails\n  - vod_context ownership: fetch returns owned Strings, then borrow as &str for from_download — avoids lifetime issues cleanly\nduration: \nverification_result: passed\ncompleted_at: 2026-04-06T19:17:20.885Z\nblocker_discovered: false\n---\n\n# T02: Wired GQL metadata fetch into download_vod with pre-dir-creation ordering and added --skip-metadata CLI flag; bare download now writes status.json\n\n**Wired GQL metadata fetch into download_vod with pre-dir-creation ordering and added --skip-metadata CLI flag; bare download now writes status.json**\n\n## What Happened\n\nT01 delivered the schema and fetch_vod_metadata_by_id. This task connected those pieces to the two actual download call paths.\n\ncli.rs: Added skip_metadata: bool to CliCommand::Download and the --skip-metadata flag to the download subcommand. Threaded get_flag(\"skip-metadata\") into the struct in parse_args.\n\nmain.rs download_vod: Extended signature with vod_context and skip_metadata. Inserted context resolution block between stream selection and prepare_artifact_dir — GQL failure returns before dir creation. Added status.json write after write_metadata in the bare download path.\n\ndownload_vod_to_artifact: Updated to pass Some((vod.title, vod.channel, vod.uploaded_at)) as vod_context and false for skip_metadata — no extra GQL call made.\n\n## Verification\n\ncargo build: clean (1 dead_code warning on read_metadata, pre-existing). cargo test: 16/16 pass. ./target/debug/vod-pipeline download --help | grep skip-metadata: flag present with correct description.\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `cargo build 2>&1 | grep '^error'` | 1 | ✅ pass (no errors) | 3100ms |\n| 2 | `cargo test 2>&1 | grep -E 'test result|FAILED'` | 0 | ✅ pass (16 ok, 0 failed) | 2000ms |\n| 3 | `./target/debug/vod-pipeline download --help 2>&1 | grep skip-metadata` | 0 | ✅ pass | 50ms |\n\n## Deviations\n\nNone.\n\n## Known Issues\n\nread_metadata in artifact.rs generates a dead_code warning; it will be used by future tasks. Not a bug.\n\n## Files Created/Modified\n\n- `src/cli.rs`\n- `src/main.rs`\n",
       "description": "T01 produced the schema changes and fetch_vod_metadata_by_id. This task wires them into the two download call paths and adds the --skip-metadata CLI flag.",
       "estimate": "45m",
       "files": [
@@ -1394,6 +1400,39 @@
       "verdict": "✅ pass",
       "duration_ms": 1000,
       "created_at": "2026-04-06T03:28:56.995Z"
+    },
+    {
+      "id": 33,
+      "task_id": "T02",
+      "slice_id": "S01",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo build 2>&1 | grep '^error'",
+      "exit_code": 1,
+      "verdict": "✅ pass (no errors)",
+      "duration_ms": 3100,
+      "created_at": "2026-04-06T19:17:20.887Z"
+    },
+    {
+      "id": 34,
+      "task_id": "T02",
+      "slice_id": "S01",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo test 2>&1 | grep -E 'test result|FAILED'",
+      "exit_code": 0,
+      "verdict": "✅ pass (16 ok, 0 failed)",
+      "duration_ms": 2000,
+      "created_at": "2026-04-06T19:17:20.887Z"
+    },
+    {
+      "id": 35,
+      "task_id": "T02",
+      "slice_id": "S01",
+      "milestone_id": "M002-z48awz",
+      "command": "./target/debug/vod-pipeline download --help 2>&1 | grep skip-metadata",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 50,
+      "created_at": "2026-04-06T19:17:20.887Z"
     }
   ]
 }

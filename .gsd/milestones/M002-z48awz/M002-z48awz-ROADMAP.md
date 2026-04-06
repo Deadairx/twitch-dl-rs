@@ -6,7 +6,7 @@ Make the operator workflow legible, flexible, and robust: status shows human-rea
 ## Slice Overview
 | ID | Slice | Risk | Depends | Done | After this |
 |----|-------|------|---------|------|------------|
-| S01 | Metadata Durability | high | — | ⬜ | After this: run download on a Twitch URL and inspect metadata.json to see title, uploaded_at, channel alongside existing fields. Old artifact directories still load cleanly. |
+| S01 | Metadata Durability | high | — | ✅ | After this: run download on a Twitch URL and inspect metadata.json to see title, uploaded_at, channel alongside existing fields. Old artifact directories still load cleanly. |
 | S02 | Status Legibility | medium | S01 | ⬜ | After this: run status against an output root with queued, downloaded, and transcribed items and see a readable table with title, date, and channel for every row. |
 | S03 | Intake Flexibility | medium | S01 | ⬜ | After this: run queue-video on a Twitch URL, then run download-all with no arguments and watch the queued item download. |
 | S04 | Selective Processing | low | S01, S03 | ⬜ | After this: run download-all --video-id 123456789 and watch only that one item download while others are skipped. |

@@ -16,9 +16,10 @@ async fn main() {
             auth_token,
             output_root,
             quality,
+            skip_metadata,
         } => {
             if let Err(error) =
-                download_vod(&video_link, auth_token.as_deref(), &output_root, quality).await
+                download_vod(&video_link, auth_token.as_deref(), &output_root, quality, None, skip_metadata).await
             {
                 eprintln!("Download failed: {error}");
                 std::process::exit(1);
@@ -109,6 +110,8 @@ async fn download_vod(
     auth_token: Option<&str>,
     output_root: &std::path::Path,
     quality: cli::QualityPreference,
+    vod_context: Option<(&str, &str, &str)>,
+    skip_metadata: bool,
 ) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
     let video_id = twitch::extract_video_id(video_link)?;
     let env_auth = env::var("TWITCH_DL_AUTH").ok();
@@ -120,6 +123,28 @@ async fn download_vod(
 
     println!("Selecting stream variant...");
     let stream = downloader::resolve_stream(&m3u8_url, quality).await?;
+
+    // Resolve VOD context: if provided use it, otherwise optionally fetch from GQL
+    let (title_opt, channel_opt, uploaded_at_opt): (Option<String>, Option<String>, Option<String>) = 
+        if let Some((t, c, u)) = vod_context {
+            (Some(t.to_string()), Some(c.to_string()), Some(u.to_string()))
+        } else if skip_metadata {
+            (None, None, None)
+        } else {
+            match twitch::fetch_vod_metadata_by_id(&video_id).await {
+                Ok((title, channel, uploaded_at)) => (Some(title), Some(channel), Some(uploaded_at)),
+                Err(e) => {
+                    eprintln!("Failed to fetch VOD metadata: {e}");
+                    eprintln!("Hint: use --skip-metadata to download without metadata");
+                    return Err(format!("GQL metadata fetch failed: {e}").into());
+                }
+            }
+        };
+
+    let ctx: Option<(&str, &str, &str)> = match (&title_opt, &channel_opt, &uploaded_at_opt) {
+        (Some(t), Some(c), Some(u)) => Some((t.as_str(), c.as_str(), u.as_str())),
+        _ => None,
+    };
 
     let artifact_dir = output_root.join(&video_id);
     let output_name = if stream.is_audio_only {
@@ -145,9 +170,14 @@ async fn download_vod(
         &video_path,
         &stream,
         auth_token.is_some(),
-        None,
+        ctx,
     )?;
     artifact::write_metadata(&artifact_dir, &metadata)?;
+
+    let mut status = artifact::ProcessStatus::new(&video_id, video_link);
+    status.downloaded = true;
+    status.media_file = Some(output_name.to_string());
+    artifact::write_status(&artifact_dir, &status)?;
 
     println!("Saved artifact to {}", artifact_dir.display());
     Ok(artifact_dir)
@@ -290,7 +320,14 @@ async fn download_vod_to_artifact(
         return Ok(existing);
     }
     println!("Downloading {} | {}", vod.video_id, vod.title);
-    let downloaded_dir = download_vod(&vod.url, None, output_root, quality).await?;
+    let downloaded_dir = download_vod(
+        &vod.url,
+        None,
+        output_root,
+        quality,
+        Some((vod.title.as_str(), vod.channel.as_str(), vod.uploaded_at.as_str())),
+        false,
+    ).await?;
     let media_path = artifact::find_media_file(&downloaded_dir)
         .ok_or_else(|| format!("missing media file after download for {}", vod.video_id))?;
     status.downloaded = true;

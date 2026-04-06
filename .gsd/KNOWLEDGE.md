@@ -40,4 +40,22 @@ Append-only. Never edit or remove existing entries. Add a new entry to supersede
 **Context:** S02 added `--continue-on-error` to both `download-all` and `transcribe-all`. Without it, a single failed item would halt batch processing and leave the rest of the queue unprocessed.
 **Lesson:** Any CLI command that processes multiple items should default to stopping on first error (safe default) but expose `--continue-on-error` for operator-controlled partial recovery. This flag should be designed into the command at inception, not added as a patch.
 
+## M002 — Workflow Polish
+
+### Metadata fetch ordering prevents orphan directories
+**Context:** S01's bare download path needed to validate VOD metadata before creating any filesystem artifacts. The choice was whether to fetch metadata first (pre-directory) or inline (post-directory).
+**Lesson:** In critical paths, always fetch and validate external data *before* creating local filesystem artifacts. This prevents orphaned partial directories if validation fails. The error message is cleaner and recovery is simpler (no cleanup needed). Cost is slightly longer failure latency, which is acceptable for user-facing downloads.
+
+### Optional schema fields need backward-compat tests at addition time
+**Context:** S01 added three new Option<String> fields to ArtifactMetadata. Without explicit backward-compat tests, future schema evolutions risk silent deserialization errors on old artifacts.
+**Lesson:** Whenever adding optional fields to a durable JSON schema, write a backward-compat test that deserializes a file *without* those fields and confirms the new fields default to None. Make this test pass as part of the initial addition, not as a follow-up. The test is cheap and prevents rework.
+
+### Context threading with borrowed references scales better than owned types
+**Context:** S01 threaded vod_context (title, channel, uploaded_at) through download_vod -> from_download. Using Option<(&str, &str, &str)> instead of owned Strings or context structs kept the call signatures readable and avoided lifetime cascades.
+**Lesson:** When passing small immutable data through a short call stack (2-3 levels), prefer borrowed references over owned types. The owned types are created at the boundary (GQL fetch), converted to borrows locally, and never propagated further. This pattern is simpler than lifetime parameters and avoids allocation overhead.
+
+### Escape hatches (--skip-metadata) are essential for external API dependencies
+**Context:** S01's GQL metadata fetch is critical path, but GQL API availability is not under operator control. Without --skip-metadata, a Twitch API issue blocks all downloads.
+**Lesson:** For any CLI command with external API dependencies in the critical path, provide a non-required escape hatch (flag or env var) that disables the dependency and proceeds with reduced functionality. Document it as an exception path, not the happy path. This keeps the system operational during transient API issues.
+
 ---

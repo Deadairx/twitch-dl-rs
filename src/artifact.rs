@@ -256,6 +256,25 @@ pub fn read_queue_file(
     Ok(serde_json::from_str(&content)?)
 }
 
+pub fn scan_queue_files(output_root: &Path) -> Result<Vec<VodEntry>, std::io::Error> {
+    let queue_dir = output_root.join("queues");
+    if !queue_dir.exists() {
+        return Ok(vec![]);
+    }
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(&queue_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("json") {
+            let content = fs::read_to_string(&path).unwrap_or_default();
+            if let Ok(qf) = serde_json::from_str::<QueueFile>(&content) {
+                entries.extend(qf.queued);
+            }
+        }
+    }
+    Ok(entries)
+}
+
 pub fn scan_artifact_statuses(
     output_root: &Path,
 ) -> Result<Vec<(String, Option<ProcessStatus>)>, std::io::Error> {
@@ -461,5 +480,68 @@ mod tests {
         assert_eq!(deserialized.channel, Some("testchan".to_string()));
         assert_eq!(deserialized.uploaded_at, Some("2026-01-01T00:00:00Z".to_string()));
         assert_eq!(deserialized.video_id, "123456");
+    }
+
+    #[test]
+    fn test_scan_queue_files_no_queues_dir() {
+        let dir = tempdir().unwrap();
+        // dir has no queues/ subdirectory
+        let result = scan_queue_files(dir.path()).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_scan_queue_files_single_file() {
+        let dir = tempdir().unwrap();
+        let queue_dir = dir.path().join("queues");
+        fs::create_dir_all(&queue_dir).unwrap();
+        
+        let json = r#"{"schema_version":1,"channel":"chan1","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":2,"queued":[{"channel":"testchan","title":"Test VOD","url":"https://www.twitch.tv/videos/123","video_id":"aaa","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"},{"channel":"testchan","title":"Test VOD 2","url":"https://www.twitch.tv/videos/124","video_id":"bbb","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("chan1.json"), json).unwrap();
+        
+        let result = scan_queue_files(dir.path()).unwrap();
+        assert_eq!(result.len(), 2);
+        
+        let ids: Vec<_> = result.iter().map(|e| e.video_id.as_str()).collect();
+        assert!(ids.contains(&"aaa"));
+        assert!(ids.contains(&"bbb"));
+    }
+
+    #[test]
+    fn test_scan_queue_files_multiple_files() {
+        let dir = tempdir().unwrap();
+        let queue_dir = dir.path().join("queues");
+        fs::create_dir_all(&queue_dir).unwrap();
+        
+        let json1 = r#"{"schema_version":1,"channel":"chan1","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":2,"queued":[{"channel":"testchan","title":"Test VOD","url":"https://www.twitch.tv/videos/123","video_id":"aaa","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"},{"channel":"testchan","title":"Test VOD 2","url":"https://www.twitch.tv/videos/124","video_id":"bbb","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("chan1.json"), json1).unwrap();
+        
+        let json2 = r#"{"schema_version":1,"channel":"chan2","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":1,"queued":[{"channel":"testchan","title":"Test VOD 3","url":"https://www.twitch.tv/videos/125","video_id":"ccc","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("chan2.json"), json2).unwrap();
+        
+        let result = scan_queue_files(dir.path()).unwrap();
+        assert_eq!(result.len(), 3);
+        
+        let ids: Vec<_> = result.iter().map(|e| e.video_id.as_str()).collect();
+        assert!(ids.contains(&"aaa"));
+        assert!(ids.contains(&"bbb"));
+        assert!(ids.contains(&"ccc"));
+    }
+
+    #[test]
+    fn test_scan_queue_files_malformed_file() {
+        let dir = tempdir().unwrap();
+        let queue_dir = dir.path().join("queues");
+        fs::create_dir_all(&queue_dir).unwrap();
+        
+        let good_json = r#"{"schema_version":1,"channel":"good","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":1,"queued":[{"channel":"testchan","title":"Test VOD","url":"https://www.twitch.tv/videos/123","video_id":"zzz","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("good.json"), good_json).unwrap();
+        
+        let bad_json = r#""not valid json at all""#;
+        fs::write(queue_dir.join("bad.json"), bad_json).unwrap();
+        
+        let result = scan_queue_files(dir.path()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].video_id, "zzz");
     }
 }

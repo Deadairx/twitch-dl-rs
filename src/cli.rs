@@ -14,6 +14,7 @@ pub enum CliCommand {
         auth_token: Option<String>,
         output_root: PathBuf,
         quality: QualityPreference,
+        skip_metadata: bool,
     },
     Queue {
         channel: String,
@@ -108,6 +109,12 @@ pub fn parse_args() -> Cli {
                         .help("Preferred stream type for download")
                         .value_parser(["audio-only", "lowest", "highest"])
                         .default_value("audio-only"),
+                )
+                .arg(
+                    Arg::new("skip-metadata")
+                        .long("skip-metadata")
+                        .help("Skip fetching VOD title/channel/date from Twitch API; those fields will be absent in metadata.json")
+                        .action(ArgAction::SetTrue),
                 ),
         )
         .subcommand(
@@ -280,6 +287,7 @@ pub fn parse_args() -> Cli {
                         .get_one::<String>("quality")
                         .expect("quality has a default value"),
                 ),
+                skip_metadata: download_matches.get_flag("skip-metadata"),
             },
         },
         Some(("queue", queue_matches)) => Cli {
