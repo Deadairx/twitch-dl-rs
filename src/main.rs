@@ -670,37 +670,140 @@ fn parse_duration_seconds(duration: &str) -> Option<u64> {
         .and_then(|value| value.parse::<u64>().ok())
 }
 
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max.saturating_sub(1)])
+    }
+}
+
+fn derive_stage(status: &Option<artifact::ProcessStatus>, artifact_dir: &std::path::Path) -> &'static str {
+    match status {
+        None => {
+            if artifact::find_media_file(artifact_dir).is_some() {
+                "downloaded"
+            } else {
+                "queued"
+            }
+        }
+        Some(s) => {
+            if !s.downloaded {
+                "queued"
+            } else if s.transcription_outcome.as_deref() == Some("failed") {
+                "failed"
+            } else if s.transcription_outcome.as_deref() == Some("suspect") {
+                "suspect"
+            } else if s.ready_for_notes {
+                "ready"
+            } else if s.transcribed {
+                "ready"
+            } else {
+                "downloaded"
+            }
+        }
+    }
+}
+
 async fn show_status(output_root: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
-    let items = artifact::scan_artifact_statuses(output_root)?;
-    if items.is_empty() {
+    // 1. Artifact-dir items
+    let artifact_items = artifact::scan_artifact_statuses(output_root)?;
+    let artifact_ids: std::collections::HashSet<String> = artifact_items
+        .iter()
+        .map(|(id, _)| id.clone())
+        .collect();
+
+    // 2. Queued-only items (not already in artifact dirs)
+    let queued_vods = artifact::scan_queue_files(output_root)?;
+    let queued_only: Vec<_> = queued_vods
+        .into_iter()
+        .filter(|v| !artifact_ids.contains(&v.video_id))
+        .collect();
+
+    // Early exit if nothing to show
+    if artifact_items.is_empty() && queued_only.is_empty() {
         println!("No artifacts found in {}", output_root.display());
         return Ok(());
     }
-    println!("{:<15} {:<12} {:<12} {:<8} {}", "VIDEO_ID", "DOWNLOADED", "OUTCOME", "READY", "REASON");
-    println!("{}", "-".repeat(80));
-    for (video_id, status) in &items {
-        match status {
-            Some(s) => {
-                let outcome = s.transcription_outcome.as_deref().unwrap_or("-");
-                let ready = if s.ready_for_notes { "yes" } else { "-" };
-                let reason = s
-                    .transcription_reason
+
+    // TODO(sort): rows appear in filesystem/queue-walk order; sort-by-date-desc is a future enhancement
+    let total = artifact_items.len() + queued_only.len();
+
+    println!(
+        "{:<10} {:<42} {:<16} {:<12} {:<12} {}",
+        "STAGE", "TITLE", "CHANNEL", "DATE", "OUTCOME", "REASON"
+    );
+    println!("{}", "-".repeat(105));
+
+    // Queued-only rows first
+    for vod in &queued_only {
+        let date = if vod.uploaded_at.len() >= 10 {
+            vod.uploaded_at[..10].to_string()
+        } else {
+            "—".to_string()
+        };
+        println!(
+            "{:<10} {:<42} {:<16} {:<12} {:<12} {}",
+            "queued",
+            truncate(&vod.title, 40),
+            truncate(&vod.channel, 14),
+            date,
+            "—",
+            "—",
+        );
+    }
+
+    // Artifact-dir rows
+    for (video_id, status) in &artifact_items {
+        let artifact_dir = output_root.join(video_id);
+        let metadata = artifact::read_metadata(&artifact_dir).unwrap_or(None);
+
+        let title = metadata
+            .as_ref()
+            .and_then(|m| m.title.as_deref())
+            .unwrap_or("—")
+            .to_string();
+        let channel = metadata
+            .as_ref()
+            .and_then(|m| m.channel.as_deref())
+            .unwrap_or("—")
+            .to_string();
+        let uploaded_at = metadata
+            .as_ref()
+            .and_then(|m| m.uploaded_at.as_deref())
+            .unwrap_or("");
+        let date = if uploaded_at.len() >= 10 {
+            uploaded_at[..10].to_string()
+        } else {
+            "—".to_string()
+        };
+
+        let stage = derive_stage(status, &artifact_dir);
+
+        let outcome = status
+            .as_ref()
+            .and_then(|s| s.transcription_outcome.as_deref())
+            .unwrap_or("—");
+        let reason = status
+            .as_ref()
+            .and_then(|s| {
+                s.transcription_reason
                     .as_deref()
                     .or(s.last_error.as_deref())
-                    .unwrap_or("-");
-                let truncated = if reason.len() > 40 {
-                    &reason[..40]
-                } else {
-                    reason
-                };
-                println!(
-                    "{:<15} {:<12} {:<12} {:<8} {}",
-                    video_id, s.downloaded, outcome, ready, truncated
-                );
-            }
-            None => println!("{:<15} {:<12} {:<12} {:<8} {}", video_id, "(no status)", "-", "-", "-"),
-        }
+            })
+            .unwrap_or("—");
+
+        println!(
+            "{:<10} {:<42} {:<16} {:<12} {:<12} {}",
+            stage,
+            truncate(&title, 40),
+            truncate(&channel, 14),
+            date,
+            outcome,
+            truncate(reason, 35),
+        );
     }
-    println!("\n{} artifact(s) total", items.len());
+
+    println!("\n{} item(s) total", total);
     Ok(())
 }

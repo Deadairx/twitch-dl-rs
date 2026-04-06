@@ -544,4 +544,51 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].video_id, "zzz");
     }
+
+    #[test]
+    fn test_scan_queue_dedup_with_artifact() {
+        let dir = tempdir().unwrap();
+
+        // Setup: queues/chan1.json with 2 VodEntries: IDs "100" and "200"
+        let queue_dir = dir.path().join("queues");
+        fs::create_dir_all(&queue_dir).unwrap();
+        let queue_json = r#"{"schema_version":1,"channel":"chan1","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":2,"queued":[{"channel":"chan1","title":"Queue VOD 1","url":"https://www.twitch.tv/videos/100","video_id":"100","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"},{"channel":"chan1","title":"Queue VOD 2","url":"https://www.twitch.tv/videos/200","video_id":"200","uploaded_at":"2026-01-02T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("chan1.json"), queue_json).unwrap();
+
+        // Setup: artifact dir 100/ with metadata.json (ID "100" appears in both sources)
+        let artifact_100 = dir.path().join("100");
+        fs::create_dir_all(&artifact_100).unwrap();
+        let metadata_json = r#"{"schema_version":1,"video_id":"100","source_url":"https://www.twitch.tv/videos/100","downloaded_at_epoch_s":0,"used_auth_token":false,"output_file":"audio.m4a","output_size_bytes":100,"stream_name":null,"selected_bandwidth":null,"selected_resolution":null,"selected_codecs":null,"title":"My VOD","channel":"chan1","uploaded_at":"2026-01-01T00:00:00Z","is_audio_only":true}"#;
+        fs::write(artifact_100.join("metadata.json"), metadata_json).unwrap();
+        let status_json = r#"{"schema_version":1,"video_id":"100","source_url":"https://www.twitch.tv/videos/100","media_file":"audio.m4a","transcript_file":null,"downloaded":true,"transcribed":false,"last_error":null,"updated_at_epoch_s":0}"#;
+        fs::write(artifact_100.join("status.json"), status_json).unwrap();
+
+        // Setup: artifact dir 300/ with audio.m4a file but no status.json (pre-S01 bare download)
+        let artifact_300 = dir.path().join("300");
+        fs::create_dir_all(&artifact_300).unwrap();
+        fs::write(artifact_300.join("audio.m4a"), "dummy audio").unwrap();
+
+        // Assert: scan_queue_files returns 2 entries (IDs "100" and "200")
+        let queue_results = scan_queue_files(dir.path()).unwrap();
+        assert_eq!(queue_results.len(), 2);
+        let queue_ids: Vec<_> = queue_results.iter().map(|v| v.video_id.as_str()).collect();
+        assert!(queue_ids.contains(&"100"));
+        assert!(queue_ids.contains(&"200"));
+
+        // Assert: scan_artifact_statuses returns 2 entries (IDs "100" and "300")
+        let artifact_results = scan_artifact_statuses(dir.path()).unwrap();
+        assert_eq!(artifact_results.len(), 2);
+        let artifact_ids: Vec<_> = artifact_results.iter().map(|(id, _)| id.as_str()).collect();
+        assert!(artifact_ids.contains(&"100"));
+        assert!(artifact_ids.contains(&"300"));
+
+        // Assert: filtering scan_queue_files by IDs not in scan_artifact_statuses yields only "200"
+        let artifact_id_set: std::collections::HashSet<_> = artifact_results.iter().map(|(id, _)| id.clone()).collect();
+        let deduped: Vec<_> = queue_results
+            .into_iter()
+            .filter(|v| !artifact_id_set.contains(&v.video_id))
+            .collect();
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].video_id, "200");
+    }
 }
