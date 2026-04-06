@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "video_id": "9900000001",
+  "source_url": "https://www.twitch.tv/videos/9900000001",
+  "media_file": null,
+  "transcript_file": null,
+  "downloaded": true,
+  "transcribed": true,
+  "last_error": null,
+  "updated_at_epoch_s": 1775445987,
+  "transcription_outcome": "completed",
+  "transcription_reason": null,
+  "transcript_word_count": 1500,
+  "ready_for_notes": true
+}

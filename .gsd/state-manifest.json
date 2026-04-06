@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-04-06T03:18:44.786Z",
+  "exported_at": "2026-04-06T03:27:41.785Z",
   "milestones": [
     {
       "id": "M001",
@@ -96,14 +96,14 @@
       "milestone_id": "M001",
       "id": "S04",
       "title": "Ready-for-notes and manual cleanup workflow",
-      "status": "pending",
+      "status": "complete",
       "risk": "medium",
       "depends": [],
       "demo": "Completed transcripts enter a clear ready-for-notes state, and a cleanup command shows only safe deletion candidates without auto-deleting anything.",
       "created_at": "2026-04-05T03:56:39.887Z",
-      "completed_at": null,
-      "full_summary_md": "",
-      "full_uat_md": "",
+      "completed_at": "2026-04-06T03:21:56.364Z",
+      "full_summary_md": "---\nid: S04\nparent: M001\nmilestone: M001\nprovides:\n  - (none)\nrequires:\n  []\naffects:\n  []\nkey_files:\n  - (none)\nkey_decisions:\n  - (none)\npatterns_established:\n  - (none)\nobservability_surfaces:\n  - none\ndrill_down_paths:\n  []\nduration: \"\"\nverification_result: passed\ncompleted_at: 2026-04-06T03:21:56.366Z\nblocker_discovered: false\n---\n\n# S04: Ready-for-notes and manual cleanup workflow\n\n**Automatic ready-for-notes lifecycle state plus safe, two-step cleanup command that lists deletion candidates for operator review before any files are removed.**\n\n## What Happened\n\nS04 delivered two core components: (1) Automatic `ready_for_notes` field on ProcessStatus that gets set to true when transcription completes successfully in the `transcribe_artifact()` function. The field includes `#[serde(default)]` for backward compatibility with old status.json files. (2) A new `cleanup` CLI subcommand that implements a two-step safe deletion workflow: list-only mode shows all `ready_for_notes == true` artifacts with per-item file sizes, and `--delete` mode (requiring explicit `--all` or `--video-id` argument) removes only `audio.m4a` and `transcript.srt` while protecting transcript.vtt, metadata.json, status.json, and source_url.txt. Filtering correctly excludes items with `suspect` or `failed` transcription outcomes. Updated `show_status()` to display a READY column showing \\\"yes\\\" for ready artifacts and \\\"-\\\" for others. All artifact tests pass, and comprehensive integration testing confirms the lifecycle works end-to-end: ready candidates are correctly identified, selective deletion works per-item and bulk, protected files survive cleanup, and non-ready artifacts are excluded from candidates.\n\n## Verification\n\nVerification across all tasks: (1) `cargo build` — zero errors, zero warnings. (2) `cargo test artifact::tests` — all 7 tests pass including backward-compat and roundtrip tests for ready_for_notes field. (3) `cleanup --help` shows delete flag and subcommand appears in main help. (4) Integration tests: list mode correctly shows ready candidates with sizes, `--delete --all` removes audio.m4a and transcript.srt, `--delete --video-id <id>` removes files for specific artifacts only, protected files remain after deletion, `--delete` without args returns error code 1, non-ready and failed transcriptions excluded from candidates, `show_status` displays READY column with correct values. UAT preconditions met: project builds, ProcessStatus has ready_for_notes field with serde(default), cleanup command implemented with all flags, show_status updated for READY column.\n\n## Requirements Advanced\n\nNone.\n\n## Requirements Validated\n\nNone.\n\n## New Requirements Surfaced\n\nNone.\n\n## Requirements Invalidated or Re-scoped\n\nNone.\n\n## Deviations\n\nNone.\n\n## Known Limitations\n\nNone.\n\n## Follow-ups\n\nNone.\n\n## Files Created/Modified\n\nNone.\n",
+      "full_uat_md": "# S04: Ready-for-notes and manual cleanup workflow — UAT\n\n**Milestone:** M001\n**Written:** 2026-04-06T03:21:56.367Z\n\n---\nid: S04\nparent: M001\nmilestone: M001\nuat_type: artifact-driven\n---\n\n# S04: Ready-for-notes and manual cleanup workflow — UAT\n\n**Milestone:** M001  \n**Written:** 2026-04-06\n\n## UAT Type\n\n- **UAT mode:** artifact-driven\n- **Why this mode is sufficient:** The slice produces artifacts (ready_for_notes field, cleanup command output) that are verifiable through filesystem inspection and command-line testing. No runtime services, background jobs, or user interaction needed — all logic is synchronous and deterministic. Artifact state inspection via `show_status`, cleanup listing, and file presence/absence checks are sufficient to prove the lifecycle works end-to-end.\n\n## Preconditions\n\n1. Project built successfully with `cargo build`\n2. Test directory created with no pre-existing artifacts\n3. ProcessStatus struct includes `ready_for_notes: bool` field with `#[serde(default)]`\n4. `cleanup` subcommand implemented with `--delete`, `--all`, `--video-id` flags\n5. `show_status` command updated to display READY column\n\n## Smoke Test\n\n1. Create temp dir with one artifact: numeric video ID directory (e.g., `123456789`)\n2. Write `status.json` with `\"ready_for_notes\": true` and `\"transcription_outcome\": \"completed\"`\n3. Create dummy `audio.m4a` and `transcript.srt` files in the artifact directory\n4. Run `./target/debug/twitch-dl-rs cleanup --output-root <tmpdir>`\n5. **Expected:** Command lists the artifact as a cleanup candidate with file sizes shown\n\n## Test Cases\n\n### 1. Ready-for-notes automatic state transition\n\n1. Create an artifact directory with numeric ID (e.g., `999888777`)\n2. Write `status.json` with `ready_for_notes: false` (initial state)\n3. Simulate transcription completion by:\n   - Setting `transcribed: true`\n   - Setting `transcription_outcome: \"completed\"`\n   - Setting `ready_for_notes: true`\n   - Writing back to `status.json`\n4. Run `./target/debug/twitch-dl-rs status --output-root <tmpdir>`\n5. **Expected:** READY column shows \"yes\" for the artifact\n\n### 2. Cleanup list mode shows only ready-for-notes candidates\n\n1. Create three artifact directories: `111111111`, `222222222`, `333333333`\n2. In `111111111`: write status with `ready_for_notes: true, transcription_outcome: \"completed\"`\n3. In `222222222`: write status with `ready_for_notes: false, transcription_outcome: null`\n4. In `333333333`: write status with `ready_for_notes: false, transcription_outcome: \"failed\"`\n5. Create dummy `audio.m4a` and `transcript.srt` in all three\n6. Run `./target/debug/twitch-dl-rs cleanup --output-root <tmpdir>`\n7. **Expected:** Output shows only `111111111` as a cleanup candidate; others are not listed\n\n### 3. Cleanup --delete --all removes audio.m4a and transcript.srt\n\n1. Create artifact `444444444` with `ready_for_notes: true, transcription_outcome: \"completed\"`\n2. Create dummy files: `audio.m4a` (5MB), `transcript.srt` (50B), `transcript.vtt`, `status.json`, `metadata.json`\n3. Run `./target/debug/twitch-dl-rs cleanup --output-root <tmpdir> --delete --all`\n4. Check artifact directory:\n   - `audio.m4a` should NOT exist ✓\n   - `transcript.srt` should NOT exist ✓\n   - `transcript.vtt` should still exist ✓\n   - `status.json` should still exist ✓\n   - `metadata.json` should still exist ✓\n5. **Expected:** Only audio.m4a and transcript.srt are deleted; protected files remain\n\n### 4. Cleanup --delete --video-id removes files only for specified artifact\n\n1. Create two artifacts: `555555555` and `666666666`, both with `ready_for_notes: true`\n2. Create dummy files in both\n3. Run `./target/debug/twitch-dl-rs cleanup --output-root <tmpdir> --delete --video-id 555555555`\n4. Check:\n   - `555555555/audio.m4a` should NOT exist ✓\n   - `666666666/audio.m4a` should still exist ✓\n5. **Expected:** Only the specified video_id is affected; other candidates untouched\n\n### 5. Cleanup --delete without --all or --video-id returns error\n\n1. Run `./target/debug/twitch-dl-rs cleanup --output-root <tmpdir> --delete`\n2. **Expected:** Command fails with error message: \"Error: --delete requires either --all or --video-id <video_id>\"\n3. **Expected:** Exit code is 1\n\n### 6. Cleanup shows per-item file sizes correctly\n\n1. Create artifact `777777777` with `ready_for_notes: true`\n2. Create `audio.m4a` with known size (e.g., 5 MB)\n3. Create `transcript.srt` with known size (e.g., 50 B)\n4. Run `./target/debug/twitch-dl-rs cleanup --output-root <tmpdir>`\n5. **Expected:** Output shows:\n   ```\n   Cleanup candidates (1 found):\n   ------\n   VIDEO_ID        audio.m4a            transcript.srt      \n   ------\n   777777777       5.0 MB               50 B                \n   ------\n   Total space to be freed: 5.0 MB\n   ```\n\n### 7. show_status displays READY column with correct values\n\n1. Create two artifacts: one with `ready_for_notes: true`, one with `ready_for_notes: false`\n2. Run `./target/debug/twitch-dl-rs status --output-root <tmpdir>`\n3. **Expected:** Output includes READY column with \"yes\" for ready artifact and \"-\" for non-ready\n\n### 8. Backward compatibility: old status.json without ready_for_notes field\n\n1. Create artifact with `status.json` that has NO `ready_for_notes` field (simulating old format)\n2. Run `./target/debug/twitch-dl-rs status --output-root <tmpdir>`\n3. **Expected:** Command succeeds; artifact is readable and shows READY as \"-\" (defaults to false)\n4. Run cleanup: `./target/debug/twitch-dl-rs cleanup --output-root <tmpdir>`\n5. **Expected:** Old artifact is not listed as a cleanup candidate (because `ready_for_notes` defaults to false)\n\n## Edge Cases\n\n### Missing transcript.vtt but ready_for_notes is true\n\n1. Create artifact with `ready_for_notes: true, transcription_outcome: \"completed\"`\n2. Create `audio.m4a` and `transcript.srt`, but NOT `transcript.vtt`\n3. Run cleanup list: `./target/debug/twitch-dl-rs cleanup --output-root <tmpdir>`\n4. **Expected:** Artifact still appears as cleanup candidate (eligibility is based on status field, not file presence)\n\n### Partially transcribed artifact (ready_for_notes true but outcome not \"completed\")\n\n1. Create artifact with `ready_for_notes: false, transcription_outcome: \"suspect\"`\n2. Run cleanup: `./target/debug/twitch-dl-rs cleanup --output-root <tmpdir>`\n3. **Expected:** Artifact is NOT a cleanup candidate (filtering checks both ready_for_notes AND outcome == \"completed\")\n\n### Non-numeric artifact directory names\n\n1. Create directory with non-numeric name (e.g., `test_video_123`)\n2. Write valid `status.json` with `ready_for_notes: true`\n3. Run cleanup: `./target/debug/twitch-dl-rs cleanup --output-root <tmpdir>`\n4. **Expected:** Directory is ignored (scanner only recognizes numeric video IDs)\n\n### Cleanup on empty artifact root\n\n1. Run `./target/debug/twitch-dl-rs cleanup --output-root <empty-tmpdir>`\n2. **Expected:** Output shows \"No cleanup candidates found.\"\n\n### Double-deletion attempt\n\n1. Create artifact with `ready_for_notes: true`\n2. Run cleanup with `--delete --all`\n3. Run cleanup again with `--delete --all`\n4. **Expected:** Second run shows \"No cleanup candidates found.\" (already deleted, so no candidates)\n\n## Failure Signals\n\n- **Cleanup command doesn't list expected artifacts** → Check if status.json exists and has correct schema (schema_version, ready_for_notes, transcription_outcome fields)\n- **Protected files were deleted** → Bug in cleanup deletion logic (should never touch transcript.vtt, status.json, metadata.json)\n- **READY column doesn't appear in status output** → ready_for_notes field not wired into show_status() function\n- **Non-ready-for-notes artifacts appear as cleanup candidates** → Filtering logic broken; check if status.ready_for_notes is being read correctly\n- **--delete without args succeeds** → Error validation missing; should require --all or --video-id\n\n## Not Proven By This UAT\n\n- **Integration with S03's transcription completion signal** — This UAT manually sets `ready_for_notes: true`; actual pipeline wiring (transcribe_artifact() setting the field) is tested via unit tests\n- **Large-scale cleanup performance** — Tests use small artifacts; performance with thousands of items not measured\n- **Concurrent cleanup operations** — No concurrency testing; assumes sequential single-operator use\n- **Interaction with actual Twitch VOD downloads** — Uses synthetic status.json files; not connected to real download pipeline\n\n## Notes for Tester\n\n- All test artifacts must use numeric video IDs (all digits) to be discovered by the scanner\n- `status.json` must match the ProcessStatus struct schema exactly — extra fields are ignored, missing fields default appropriately\n- The cleanup command is read-only by default (list mode); no files are deleted without `--delete` flag\n- Artifacts that reach `ready_for_notes` state are eligible for cleanup permanently until explicitly deleted — there is no time-based expiration or automatic aging-out\n",
       "goal": "Surface a `ready_for_notes` lifecycle state automatically when transcription completes successfully, and provide a two-step cleanup command that lists audio and intermediate deletion candidates for operator review before any deletion occurs.",
       "success_criteria": "`cargo test artifact::tests` passes including new `ready_for_notes` backward-compat and round-trip tests; `cargo build` is clean; `./target/debug/twitch-dl-rs cleanup --help` shows `--delete` and `--all` flags; running `cleanup --output-root` on a synthetic artifact dir with `ready_for_notes: true` in status.json lists the item with file sizes; running `cleanup --output-root` on a dir with no ready items prints \"No ready-for-notes artifacts found\"; `status` command shows `READY` marker for completed items.",
       "proof_level": "This slice proves: contract + integration. Real runtime required: no (unit tests + CLI smoke tests against synthetic fixtures). Human/UAT required: no.",
@@ -118,22 +118,17 @@
       "title": "End-to-end operator flow proof",
       "status": "pending",
       "risk": "medium",
-      "depends": [
-        "S01",
-        "S02",
-        "S03",
-        "S04"
-      ],
+      "depends": [],
       "demo": "In one real CLI workflow, you can queue media, let staged processing run without babysitting, inspect failures, see ready-for-notes items, and review cleanup candidates.",
       "created_at": "2026-04-05T03:56:39.887Z",
       "completed_at": null,
       "full_summary_md": "",
       "full_uat_md": "",
-      "goal": "",
-      "success_criteria": "",
-      "proof_level": "",
-      "integration_closure": "",
-      "observability_impact": "",
+      "goal": "Prove the full M001 pipeline works as an integrated whole by running a real operator walkthrough against existing artifacts and a manufactured scenario, capturing all CLI output to a durable proof log.",
+      "success_criteria": "- `proofs/proof.log` exists and is non-empty (>50 lines)\n- Real artifact IDs (`2676094572`, `2693295712`) appear in the log\n- `outcome=failed` or `FAILED` and a failure reason appear in the log (from old-schema real artifact or manufactured failure)\n- `completed` and `yes` (READY column) appear in the log from the manufactured completed scratch artifact\n- `cleanup` output shows a candidate from the scratch dir in the log\n- `cargo test` still passes 14/14 after the walkthrough (no real artifact state mutated)\n- `proofs/run-proof.sh` exists and is executable",
+      "proof_level": "final-assembly — real CLI runtime, real artifact filesystem, real `hear` invocation for failure scenario",
+      "integration_closure": "Upstream consumed: artifact.rs schema (S01), status/download-all/transcribe-all commands (S02), TranscriptionOutcome + SRT/VTT artifacts (S03), ready_for_notes + cleanup command (S04). New wiring: none — this slice only exercises existing contracts. What remains: nothing — M001 is complete after this slice.",
+      "observability_impact": "Proof log at `proofs/proof.log` is the durable evidence artifact. Each phase (status, scratch-completed, failure) is a labeled section in the log for human review.",
       "sequence": 0,
       "replan_triggered_at": null
     }
@@ -476,6 +471,102 @@
       "observability_impact": "cleanup command provides candidate listing with file sizes; deletion confirms each removed file by name",
       "full_plan_md": "",
       "sequence": 0
+    },
+    {
+      "milestone_id": "M001",
+      "slice_id": "S05",
+      "id": "T01",
+      "title": "Created proof script and manufactured completed/failure fixtures for end-to-end pipeline verification",
+      "status": "complete",
+      "one_liner": "Created proof script and manufactured completed/failure fixtures for end-to-end pipeline verification",
+      "narrative": "Executed all task steps to prepare for the S05 milestone proof walkthrough. Created proofs/ directory structure with run-proof.sh script containing three phases: real artifact status inspection, cleanup candidate visibility (using completed item 9900000001), and transcription failure handling (using failure candidate 9900000002). Manufactured two fixture artifacts matching the ProcessStatus schema with proper field structure. Completed item 9900000001 has ready_for_notes=true, transcription_outcome=\"completed\", transcript files, and stub audio. Failure candidate 9900000002 has corrupt audio to trigger hear failure during Phase 3 transcribe-all. Script uses explicit || true guard on transcribe-all phase to allow expected failures. All verification checks passed.",
+      "verification_result": "Ran verification command: test -x proofs/run-proof.sh && test -f proofs/scratch-artifacts/9900000001/status.json && test -f proofs/scratch-artifacts/9900000002/status.json && python3 -c \"import json; s=json.load(open('proofs/scratch-artifacts/9900000001/status.json')); assert s['ready_for_notes']==True and s['transcription_outcome']=='completed'\" && python3 -c \"import json; s=json.load(open('proofs/scratch-artifacts/9900000002/status.json')); assert s['transcribed']==False and s.get('transcription_outcome') is None\" && echo 'T01 fixtures OK'. Result: T01 fixtures OK. All 5 checks passed: script executable, both status.json files present, completed fixture valid, failure fixture valid.",
+      "duration": "",
+      "completed_at": "2026-04-06T03:27:41.625Z",
+      "blocker_discovered": false,
+      "deviations": "None.",
+      "known_issues": "None.",
+      "key_files": [
+        "proofs/run-proof.sh",
+        "proofs/scratch-artifacts/9900000001/status.json",
+        "proofs/scratch-artifacts/9900000002/status.json"
+      ],
+      "key_decisions": [],
+      "full_summary_md": "---\nid: T01\nparent: S05\nmilestone: M001\nkey_files:\n  - proofs/run-proof.sh\n  - proofs/scratch-artifacts/9900000001/status.json\n  - proofs/scratch-artifacts/9900000002/status.json\nkey_decisions:\n  - (none)\nduration: \nverification_result: passed\ncompleted_at: 2026-04-06T03:27:41.623Z\nblocker_discovered: false\n---\n\n# T01: Created proof script and manufactured completed/failure fixtures for end-to-end pipeline verification\n\n**Created proof script and manufactured completed/failure fixtures for end-to-end pipeline verification**\n\n## What Happened\n\nExecuted all task steps to prepare for the S05 milestone proof walkthrough. Created proofs/ directory structure with run-proof.sh script containing three phases: real artifact status inspection, cleanup candidate visibility (using completed item 9900000001), and transcription failure handling (using failure candidate 9900000002). Manufactured two fixture artifacts matching the ProcessStatus schema with proper field structure. Completed item 9900000001 has ready_for_notes=true, transcription_outcome=\"completed\", transcript files, and stub audio. Failure candidate 9900000002 has corrupt audio to trigger hear failure during Phase 3 transcribe-all. Script uses explicit || true guard on transcribe-all phase to allow expected failures. All verification checks passed.\n\n## Verification\n\nRan verification command: test -x proofs/run-proof.sh && test -f proofs/scratch-artifacts/9900000001/status.json && test -f proofs/scratch-artifacts/9900000002/status.json && python3 -c \"import json; s=json.load(open('proofs/scratch-artifacts/9900000001/status.json')); assert s['ready_for_notes']==True and s['transcription_outcome']=='completed'\" && python3 -c \"import json; s=json.load(open('proofs/scratch-artifacts/9900000002/status.json')); assert s['transcribed']==False and s.get('transcription_outcome') is None\" && echo 'T01 fixtures OK'. Result: T01 fixtures OK. All 5 checks passed: script executable, both status.json files present, completed fixture valid, failure fixture valid.\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `test -x proofs/run-proof.sh` | 0 | ✅ pass | 50ms |\n| 2 | `test -f proofs/scratch-artifacts/9900000001/status.json` | 0 | ✅ pass | 50ms |\n| 3 | `test -f proofs/scratch-artifacts/9900000002/status.json` | 0 | ✅ pass | 50ms |\n| 4 | `Python validation of 9900000001 fixture` | 0 | ✅ pass | 100ms |\n| 5 | `Python validation of 9900000002 fixture` | 0 | ✅ pass | 100ms |\n\n## Deviations\n\nNone.\n\n## Known Issues\n\nNone.\n\n## Files Created/Modified\n\n- `proofs/run-proof.sh`\n- `proofs/scratch-artifacts/9900000001/status.json`\n- `proofs/scratch-artifacts/9900000002/status.json`\n",
+      "description": "Create the `proofs/` directory, write `proofs/run-proof.sh` with all three walkthrough phases documented and executable, and manufacture the scratch artifact fixtures that Phase 2 (completed) and Phase 3 (failure) depend on.\n\nThis task produces everything the next task needs to execute — the script is the recipe, and the scratch fixtures simulate the S03/S04 new-schema state that real artifacts lack due to the state gap.\n\n## Steps\n\n1. Create `proofs/` and `proofs/scratch-artifacts/` directories.\n2. Create scratch artifact `proofs/scratch-artifacts/9900000001/` — the manufactured COMPLETED item:\n   - `status.json`: schema_version=1, video_id=9900000001, downloaded=true, transcribed=true, transcription_outcome=\"completed\", ready_for_notes=true, transcript_word_count=1500, last_error=null, updated_at_epoch_s=(current epoch)\n   - `transcript.srt`: stub SRT file with a few lines of valid SRT content\n   - `transcript.vtt`: stub VTT file with WEBVTT header and a few cue lines\n   - `audio.m4a`: small stub binary file (just `echo 'stub' > audio.m4a` — it won't be transcribed, just needs to exist for cleanup size display)\n   - `metadata.json`: minimal JSON `{\"id\": \"9900000001\", \"title\": \"Proof Stub: Completed Item\"}`\n3. Create scratch artifact `proofs/scratch-artifacts/9900000002/` — the manufactured FAILURE candidate:\n   - `status.json`: schema_version=1, video_id=9900000002, downloaded=true, transcribed=false, transcription_outcome=null, last_error=null, updated_at_epoch_s=(current epoch)\n   - `audio.m4a`: corrupt audio file — write `echo 'not valid audio data' > audio.m4a` so `hear` will exit nonzero and trigger `TranscriptionOutcome::Failed`\n   - `metadata.json`: minimal JSON `{\"id\": \"9900000002\", \"title\": \"Proof Stub: Failure Candidate\"}`\n4. Write `proofs/run-proof.sh` as a bash script with `set -euo pipefail` REMOVED (we want the script to continue past `transcribe-all` errors) and explicit `|| true` on the transcribe-all phase. The script structure:\n   ```\n   #!/usr/bin/env bash\n   # Phase 1: Real artifacts — status inspection\n   # Phase 2: Scratch completed artifact — cleanup candidate visibility  \n   # Phase 3: Scratch failure artifact — failure reason visibility\n   ```\n   Each phase uses `echo` banners and redirects output with `tee -a` into `proofs/proof.log`. The log is truncated at start (`> proofs/proof.log` before first append).\n5. Make the script executable: `chmod +x proofs/run-proof.sh`\n\n## Key constraints\n- The script MUST use `--output-root proofs/scratch-artifacts` for all Phase 2/3 commands — never touch real `artifacts/`\n- Phase 1 commands operate against the real `artifacts/` directory (default output-root)\n- The script calls the binary as `./target/debug/twitch-dl-rs` — the caller must have run `cargo build` first\n- `transcribe-all --output-root proofs/scratch-artifacts --continue-on-error || true` ensures Phase 3 doesn't abort the script even if hear fails (which is expected)\n- Do NOT add `source_url.txt` to scratch artifacts — the schema doesn't require it and the cleanup command doesn't check for it",
+      "estimate": "30m",
+      "files": [
+        "proofs/run-proof.sh",
+        "proofs/scratch-artifacts/9900000001/status.json",
+        "proofs/scratch-artifacts/9900000001/transcript.srt",
+        "proofs/scratch-artifacts/9900000001/transcript.vtt",
+        "proofs/scratch-artifacts/9900000001/audio.m4a",
+        "proofs/scratch-artifacts/9900000001/metadata.json",
+        "proofs/scratch-artifacts/9900000002/status.json",
+        "proofs/scratch-artifacts/9900000002/audio.m4a",
+        "proofs/scratch-artifacts/9900000002/metadata.json"
+      ],
+      "verify": "test -x proofs/run-proof.sh && test -f proofs/scratch-artifacts/9900000001/status.json && test -f proofs/scratch-artifacts/9900000002/status.json && python3 -c \"import json; s=json.load(open('proofs/scratch-artifacts/9900000001/status.json')); assert s['ready_for_notes']==True and s['transcription_outcome']=='completed', 'completed fixture wrong'\" && python3 -c \"import json; s=json.load(open('proofs/scratch-artifacts/9900000002/status.json')); assert s['transcribed']==False and s.get('transcription_outcome') is None, 'failure fixture wrong'\" && echo 'T01 fixtures OK'",
+      "inputs": [
+        "`src/artifact.rs` (ProcessStatus schema — know which fields are required vs optional)",
+        "`src/main.rs` (cleanup candidate filter logic — know ready_for_notes + outcome=completed requirement)"
+      ],
+      "expected_output": [
+        "`proofs/run-proof.sh`",
+        "`proofs/scratch-artifacts/9900000001/status.json`",
+        "`proofs/scratch-artifacts/9900000001/transcript.srt`",
+        "`proofs/scratch-artifacts/9900000001/transcript.vtt`",
+        "`proofs/scratch-artifacts/9900000001/audio.m4a`",
+        "`proofs/scratch-artifacts/9900000001/metadata.json`",
+        "`proofs/scratch-artifacts/9900000002/status.json`",
+        "`proofs/scratch-artifacts/9900000002/audio.m4a`",
+        "`proofs/scratch-artifacts/9900000002/metadata.json`"
+      ],
+      "observability_impact": "",
+      "full_plan_md": "",
+      "sequence": 0
+    },
+    {
+      "milestone_id": "M001",
+      "slice_id": "S05",
+      "id": "T02",
+      "title": "Execute proof walkthrough and capture proof log",
+      "status": "pending",
+      "one_liner": "",
+      "narrative": "",
+      "verification_result": "",
+      "duration": "",
+      "completed_at": null,
+      "blocker_discovered": false,
+      "deviations": "",
+      "known_issues": "",
+      "key_files": [],
+      "key_decisions": [],
+      "full_summary_md": "",
+      "description": "Run `proofs/run-proof.sh` to execute the full three-phase operator walkthrough, capture all CLI output to `proofs/proof.log`, and verify the log contains durable evidence for every M001 pipeline contract.\n\nThis task is the milestone completion evidence. The proof log must be produced by actually running the CLI — not hand-constructed.\n\n## Steps\n\n1. Run `cargo build` and confirm it succeeds with zero errors.\n2. Run `bash proofs/run-proof.sh 2>&1` to execute the full walkthrough. The script writes `proofs/proof.log`.\n3. If the script errors unexpectedly (not in the expected `hear` failure), inspect the error, fix the fixture or script, and re-run. The `|| true` guard on `transcribe-all` means a `hear` failure is expected and should not abort the script.\n4. Inspect `proofs/proof.log` for the required evidence signals:\n   - Phase 1: real artifact IDs appear (2676094572, 2693295712 or others from the 25 real items)\n   - Phase 1: status table with DOWNLOADED/TRANSCRIBED columns visible\n   - Phase 2: artifact 9900000001 shows `completed` in OUTCOME and `yes` in READY\n   - Phase 2: cleanup lists 9900000001 as a candidate\n   - Phase 3: `transcribe-all` attempts 9900000002, `hear` fails, outcome becomes `failed` with a reason\n   - Phase 3: subsequent `status` on scratch dir shows `failed` for 9900000002\n5. Run `cargo test` to confirm all 14 tests still pass (nothing mutated real state).\n6. If any phase produces wrong output (e.g. cleanup shows no candidates, failure reason missing), diagnose and fix:\n   - Cleanup empty: verify `ready_for_notes=true` AND `transcription_outcome=\"completed\"` both present in 9900000001/status.json\n   - Failure reason missing: verify 9900000002/status.json was updated after transcribe-all (check `transcription_outcome` field)\n   - hear produces unexpected outcome: check what `hear -d -i proofs/scratch-artifacts/9900000002/audio.m4a -S` returns directly\n\n## Key constraints\n- The binary path is `./target/debug/twitch-dl-rs` — must have cargo build done first\n- Do NOT manually edit `proofs/proof.log` — it must be produced by CLI execution\n- Phase 3 deliberately produces a `hear` failure; this is expected behavior, not a bug\n- After Phase 3, `proofs/scratch-artifacts/9900000002/status.json` will be mutated by `transcribe-all` — this is expected and intentional\n- Real `artifacts/` directory must remain completely unchanged throughout",
+      "estimate": "30m",
+      "files": [
+        "proofs/proof.log",
+        "proofs/scratch-artifacts/9900000002/status.json"
+      ],
+      "verify": "test -f proofs/proof.log && wc -l proofs/proof.log | awk '{if($1<10) exit 1}' && grep -q '267[0-9]\\{7\\}' proofs/proof.log && grep -qi 'completed' proofs/proof.log && grep -qi 'yes' proofs/proof.log && grep -qi 'failed\\|hear\\|error' proofs/proof.log && cargo test 2>&1 | grep -q '14 passed' && echo 'T02 proof log OK'",
+      "inputs": [
+        "`proofs/run-proof.sh`",
+        "`proofs/scratch-artifacts/9900000001/status.json`",
+        "`proofs/scratch-artifacts/9900000001/transcript.srt`",
+        "`proofs/scratch-artifacts/9900000001/transcript.vtt`",
+        "`proofs/scratch-artifacts/9900000001/audio.m4a`",
+        "`proofs/scratch-artifacts/9900000002/status.json`",
+        "`proofs/scratch-artifacts/9900000002/audio.m4a`",
+        "`./target/debug/twitch-dl-rs` (binary — run cargo build first)"
+      ],
+      "expected_output": [
+        "`proofs/proof.log`",
+        "`proofs/scratch-artifacts/9900000002/status.json` (mutated by transcribe-all with failure outcome)"
+      ],
+      "observability_impact": "",
+      "full_plan_md": "",
+      "sequence": 0
     }
   ],
   "decisions": [
@@ -809,6 +900,61 @@
       "verdict": "✅ pass",
       "duration_ms": 150,
       "created_at": "2026-04-06T03:18:44.762Z"
+    },
+    {
+      "id": 20,
+      "task_id": "T01",
+      "slice_id": "S05",
+      "milestone_id": "M001",
+      "command": "test -x proofs/run-proof.sh",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 50,
+      "created_at": "2026-04-06T03:27:41.625Z"
+    },
+    {
+      "id": 21,
+      "task_id": "T01",
+      "slice_id": "S05",
+      "milestone_id": "M001",
+      "command": "test -f proofs/scratch-artifacts/9900000001/status.json",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 50,
+      "created_at": "2026-04-06T03:27:41.625Z"
+    },
+    {
+      "id": 22,
+      "task_id": "T01",
+      "slice_id": "S05",
+      "milestone_id": "M001",
+      "command": "test -f proofs/scratch-artifacts/9900000002/status.json",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 50,
+      "created_at": "2026-04-06T03:27:41.625Z"
+    },
+    {
+      "id": 23,
+      "task_id": "T01",
+      "slice_id": "S05",
+      "milestone_id": "M001",
+      "command": "Python validation of 9900000001 fixture",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 100,
+      "created_at": "2026-04-06T03:27:41.625Z"
+    },
+    {
+      "id": 24,
+      "task_id": "T01",
+      "slice_id": "S05",
+      "milestone_id": "M001",
+      "command": "Python validation of 9900000002 fixture",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 100,
+      "created_at": "2026-04-06T03:27:41.625Z"
     }
   ]
 }
