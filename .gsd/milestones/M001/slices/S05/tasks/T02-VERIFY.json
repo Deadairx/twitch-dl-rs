@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M001/S05/T02",
+  "timestamp": 1775446148596,
+  "passed": true,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "test -f proofs/proof.log",
+      "exitCode": 0,
+      "durationMs": 95,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -q '267[0-9]\\{7\\}' proofs/proof.log",
+      "exitCode": 0,
+      "durationMs": 104,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -qi 'completed' proofs/proof.log",
+      "exitCode": 0,
+      "durationMs": 101,
+      "verdict": "pass"
+    },
+    {
+      "command": "grep -qi 'yes' proofs/proof.log",
+      "exitCode": 0,
+      "durationMs": 102,
+      "verdict": "pass"
+    },
+    {
+      "command": "echo 'T02 proof log OK'",
+      "exitCode": 0,
+      "durationMs": 227,
+      "verdict": "pass"
+    }
+  ]
+}

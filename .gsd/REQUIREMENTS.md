@@ -2,74 +2,9 @@
 
 This file is the explicit capability and coverage contract for the project.
 
-Use it to track what is actively in scope, what has been validated by completed work, what is intentionally deferred, and what is explicitly out of scope.
-
-Guidelines:
-- Keep requirements capability-oriented, not a giant feature wishlist.
-- Requirements should be atomic, testable, and stated in plain language.
-- Every **Active** requirement should be mapped to a slice, deferred, blocked with reason, or moved out of scope.
-- Each requirement should have one accountable primary owner and may have supporting slices.
-- Research may suggest requirements, but research does not silently make them binding.
-- Validation means the requirement was actually proven by completed work and verification, not just discussed.
-
 ## Active
 
-### R001 — Queue-first media job pipeline
-- Class: primary-user-loop
-- Status: active
-- Description: The CLI must treat each media item as a durable tracked job with explicit stage state instead of a one-off command side effect.
-- Why it matters: The workflow depends on coming back later and understanding what happened without babysitting the run.
-- Source: user
-- Primary owning slice: M001/S01
-- Supporting slices: M001/S02, M001/S05
-- Validation: mapped
-- Notes: Artifact-first job state is the center of the product, not just an internal detail.
-
-### R002 — Twitch media intake
-- Class: core-capability
-- Status: active
-- Description: The system must ingest Twitch media into durable local artifacts as the first supported source.
-- Why it matters: Twitch is the current real workflow and the foundation for broader source support later.
-- Source: user
-- Primary owning slice: M001/S01
-- Supporting slices: M001/S05
-- Validation: mapped
-- Notes: Twitch-first now; broader source coverage comes later.
-
-### R003 — Decoupled download and transcription scheduling
-- Class: operability
-- Status: active
-- Description: Downloading must continue making progress even when transcription is pending, running slowly, or failing.
-- Why it matters: The user does not want transcription to block ingestion of other media.
-- Source: user
-- Primary owning slice: M001/S02
-- Supporting slices: M001/S05
-- Validation: mapped
-- Notes: This is a product behavior requirement, not just a threading choice.
-
-### R004 — Trustworthy transcript artifacts
-- Class: quality-attribute
-- Status: active
-- Description: Completed transcript artifacts must be trustworthy enough for downstream note generation and real use.
-- Why it matters: Notes, memory work, and operator trust all depend on transcript quality.
-- Source: user
-- Primary owning slice: M001/S03
-- Supporting slices: M001/S05
-- Validation: mapped
-- Notes: Reliability matters more than raw speed for default behavior.
-
-### R005 — Durable per-item artifact state and failure visibility
-- Class: failure-visibility
-- Status: active
-- Description: Each item must surface clear stage status, failure reasons, and recoverable state through durable artifacts.
-- Why it matters: The user wants to return to the queue and immediately see what failed and why.
-- Source: user
-- Primary owning slice: M001/S01
-- Supporting slices: M001/S02, M001/S03, M001/S05
-- Validation: mapped
-- Notes: Status needs to survive interruptions and reruns.
-
-### R006 — Ready-for-notes downstream stage
+### R006 — Finished transcripts must enter a clear ready-for-notes state that separates core pipeline completion from optional downstream note work.
 - Class: continuity
 - Status: active
 - Description: Finished transcripts must enter a clear ready-for-notes state that separates core pipeline completion from optional downstream note work.
@@ -80,7 +15,7 @@ Guidelines:
 - Validation: mapped
 - Notes: This prepares M002 without forcing notes into M001.
 
-### R007 — Manual-first notes generation with prompt/style choice
+### R007 — The system must support manual-first note generation where the user can choose the style or question lens for a transcript.
 - Class: differentiator
 - Status: active
 - Description: The system must support manual-first note generation where the user can choose the style or question lens for a transcript.
@@ -91,7 +26,7 @@ Guidelines:
 - Validation: mapped
 - Notes: Recap/summary is the safe default lens, but not the only one.
 
-### R008 — Ember memory persistence for selected note outputs
+### R008 — Selected downstream outputs must be persistable into Ember as memories.
 - Class: integration
 - Status: active
 - Description: Selected downstream outputs must be persistable into Ember as memories.
@@ -102,7 +37,7 @@ Guidelines:
 - Validation: mapped
 - Notes: Memory-affecting actions should stay more explicit than basic recap generation.
 
-### R009 — Manual cleanup candidate workflow with safety checks
+### R009 — The system must provide an explicit cleanup command that lists safe deletion candidates instead of automatically deleting source media.
 - Class: operability
 - Status: active
 - Description: The system must provide an explicit cleanup command that lists safe deletion candidates instead of automatically deleting source media.
@@ -113,7 +48,7 @@ Guidelines:
 - Validation: mapped
 - Notes: Safe candidate detection still needs locking and lifecycle awareness.
 
-### R010 — Additional media sources beyond Twitch
+### R010 — The architecture must support additional sources such as YouTube after Twitch-first stabilization.
 - Class: core-capability
 - Status: active
 - Description: The architecture must support additional sources such as YouTube after Twitch-first stabilization.
@@ -124,7 +59,7 @@ Guidelines:
 - Validation: mapped
 - Notes: Not part of M001 delivery.
 
-### R011 — Support/contradict analysis against current view or memory context
+### R011 — The notes layer must support prompts that look for content supporting or contradicting current views or existing memory context.
 - Class: differentiator
 - Status: active
 - Description: The notes layer must support prompts that look for content supporting or contradicting current views or existing memory context.
@@ -135,7 +70,7 @@ Guidelines:
 - Validation: mapped
 - Notes: This is a later memory-shaping capability, not a first milestone requirement.
 
-### R012 — Resume long-running work without babysitting
+### R012 — Interrupted or partial work must be resumable without redoing completed stages or losing operator understanding.
 - Class: continuity
 - Status: active
 - Description: Interrupted or partial work must be resumable without redoing completed stages or losing operator understanding.
@@ -148,11 +83,64 @@ Guidelines:
 
 ## Validated
 
-None yet.
+### R001 — The CLI must treat each media item as a durable tracked job with explicit stage state instead of a one-off command side effect.
+- Class: primary-user-loop
+- Status: validated
+- Description: The CLI must treat each media item as a durable tracked job with explicit stage state instead of a one-off command side effect.
+- Why it matters: The workflow depends on coming back later and understanding what happened without babysitting the run.
+- Source: user
+- Primary owning slice: M001/S01
+- Supporting slices: M001/S02, M001/S05
+- Validation: S05 proof phase 1: 25 real artifacts each with per-item stage state (DOWNLOADED, OUTCOME, READY) in status table. Queue files and status.json persist durable job state across restarts.
+- Notes: Artifact-first job state is the center of the product, not just an internal detail.
+
+### R002 — The system must ingest Twitch media into durable local artifacts as the first supported source.
+- Class: core-capability
+- Status: validated
+- Description: The system must ingest Twitch media into durable local artifacts as the first supported source.
+- Why it matters: Twitch is the current real workflow and the foundation for broader source support later.
+- Source: user
+- Primary owning slice: M001/S01
+- Supporting slices: M001/S05
+- Validation: queue and process commands ingest Twitch VODs via twitch.rs; artifact directories created with source_url.txt, metadata.json, audio.m4a, and status.json. Confirmed functional in S05 proof run against real artifacts.
+- Notes: Twitch-first now; broader source coverage comes later.
+
+### R003 — Downloading must continue making progress even when transcription is pending, running slowly, or failing.
+- Class: operability
+- Status: validated
+- Description: Downloading must continue making progress even when transcription is pending, running slowly, or failing.
+- Why it matters: The user does not want transcription to block ingestion of other media.
+- Source: user
+- Primary owning slice: M001/S02
+- Supporting slices: M001/S05
+- Validation: download-all and transcribe-all operate as independent CLI commands. S05 proof shows artifacts in mixed staged states. Each command checks status.json before acting, enabling independent recovery.
+- Notes: This is a product behavior requirement, not just a threading choice.
+
+### R004 — Completed transcript artifacts must be trustworthy enough for downstream note generation and real use.
+- Class: quality-attribute
+- Status: validated
+- Description: Completed transcript artifacts must be trustworthy enough for downstream note generation and real use.
+- Why it matters: Notes, memory work, and operator trust all depend on transcript quality.
+- Source: user
+- Primary owning slice: M001/S03
+- Supporting slices: M001/S05
+- Validation: hear-backed transcription with word-count threshold (50 words/hour) and repetition detection (trigram >10x in 200-word window). Both SRT and VTT required for completed outcome. 7/7 transcribe unit tests confirm heuristic logic.
+- Notes: Reliability matters more than raw speed for default behavior.
+
+### R005 — Each item must surface clear stage status, failure reasons, and recoverable state through durable artifacts.
+- Class: failure-visibility
+- Status: validated
+- Description: Each item must surface clear stage status, failure reasons, and recoverable state through durable artifacts.
+- Why it matters: The user wants to return to the queue and immediately see what failed and why.
+- Source: user
+- Primary owning slice: M001/S01
+- Supporting slices: M001/S02, M001/S03, M001/S05
+- Validation: ProcessStatus persists transcription_outcome, transcription_reason, and last_error. status command surfaces these in OUTCOME and REASON columns. proof.log phase 1 shows prior failure with reason; phase 3 shows manufactured failure captured and item remaining recoverable.
+- Notes: Status needs to survive interruptions and reruns.
 
 ## Deferred
 
-### R020 — Automatic recap generation after transcription
+### R020 — The system may eventually auto-generate a safe default recap after transcript completion.
 - Class: differentiator
 - Status: deferred
 - Description: The system may eventually auto-generate a safe default recap after transcript completion.
@@ -163,7 +151,7 @@ None yet.
 - Validation: unmapped
 - Notes: Deferred because the auto/manual boundary is intentionally still flexible.
 
-### R021 — Fully automatic cleanup execution
+### R021 — The system could theoretically execute cleanup automatically once safety checks pass.
 - Class: anti-feature
 - Status: deferred
 - Description: The system could theoretically execute cleanup automatically once safety checks pass.
@@ -176,7 +164,7 @@ None yet.
 
 ## Out of Scope
 
-### R030 — Automatic destructive deletion of originals
+### R030 — The system must not automatically delete original media as part of normal pipeline completion.
 - Class: anti-feature
 - Status: out-of-scope
 - Description: The system must not automatically delete original media as part of normal pipeline completion.
@@ -187,7 +175,7 @@ None yet.
 - Validation: n/a
 - Notes: Cleanup is explicit operator action only.
 
-### R031 — Transcript editing UI
+### R031 — The project does not include a graphical transcript editing interface.
 - Class: anti-feature
 - Status: out-of-scope
 - Description: The project does not include a graphical transcript editing interface.
@@ -198,7 +186,7 @@ None yet.
 - Validation: n/a
 - Notes: Transcript artifacts remain file-based.
 
-### R032 — General-purpose publishing or distribution workflows
+### R032 — The project will not handle publishing transcripts, clips, or derived content to external platforms.
 - Class: anti-feature
 - Status: out-of-scope
 - Description: The project will not handle publishing transcripts, clips, or derived content to external platforms.
@@ -213,11 +201,11 @@ None yet.
 
 | ID | Class | Status | Primary owner | Supporting | Proof |
 |---|---|---|---|---|---|
-| R001 | primary-user-loop | active | M001/S01 | M001/S02, M001/S05 | mapped |
-| R002 | core-capability | active | M001/S01 | M001/S05 | mapped |
-| R003 | operability | active | M001/S02 | M001/S05 | mapped |
-| R004 | quality-attribute | active | M001/S03 | M001/S05 | mapped |
-| R005 | failure-visibility | active | M001/S01 | M001/S02, M001/S03, M001/S05 | mapped |
+| R001 | primary-user-loop | validated | M001/S01 | M001/S02, M001/S05 | S05 proof phase 1: 25 real artifacts each with per-item stage state (DOWNLOADED, OUTCOME, READY) in status table. Queue files and status.json persist durable job state across restarts. |
+| R002 | core-capability | validated | M001/S01 | M001/S05 | queue and process commands ingest Twitch VODs via twitch.rs; artifact directories created with source_url.txt, metadata.json, audio.m4a, and status.json. Confirmed functional in S05 proof run against real artifacts. |
+| R003 | operability | validated | M001/S02 | M001/S05 | download-all and transcribe-all operate as independent CLI commands. S05 proof shows artifacts in mixed staged states. Each command checks status.json before acting, enabling independent recovery. |
+| R004 | quality-attribute | validated | M001/S03 | M001/S05 | hear-backed transcription with word-count threshold (50 words/hour) and repetition detection (trigram >10x in 200-word window). Both SRT and VTT required for completed outcome. 7/7 transcribe unit tests confirm heuristic logic. |
+| R005 | failure-visibility | validated | M001/S01 | M001/S02, M001/S03, M001/S05 | ProcessStatus persists transcription_outcome, transcription_reason, and last_error. status command surfaces these in OUTCOME and REASON columns. proof.log phase 1 shows prior failure with reason; phase 3 shows manufactured failure captured and item remaining recoverable. |
 | R006 | continuity | active | M001/S04 | M001/S05 | mapped |
 | R007 | differentiator | active | M002/S01 | M002/S02, M002/S03 | mapped |
 | R008 | integration | active | M002/S02 | M002/S03 | mapped |
@@ -233,7 +221,7 @@ None yet.
 
 ## Coverage Summary
 
-- Active requirements: 12
-- Mapped to slices: 12
-- Validated: 0
+- Active requirements: 7
+- Mapped to slices: 7
+- Validated: 5 (R001, R002, R003, R004, R005)
 - Unmapped active requirements: 0
