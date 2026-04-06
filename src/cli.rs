@@ -32,6 +32,16 @@ pub enum CliCommand {
     Status {
         output_root: PathBuf,
     },
+    DownloadAll {
+        channel: String,
+        output_root: PathBuf,
+        quality: QualityPreference,
+        continue_on_error: bool,
+    },
+    TranscribeAll {
+        output_root: PathBuf,
+        continue_on_error: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -182,6 +192,51 @@ pub fn parse_args() -> Cli {
                         .default_value("artifacts"),
                 ),
         )
+        .subcommand(
+            Command::new("download-all")
+                .about("Download all pending queued VODs for a channel")
+                .arg(
+                    Arg::new("channel")
+                        .help("Twitch channel login name")
+                        .required(true)
+                        .index(1),
+                )
+                .arg(
+                    Arg::new("output-root")
+                        .long("output-root")
+                        .help("Directory where artifact folders and queue files are stored")
+                        .default_value("artifacts"),
+                )
+                .arg(
+                    Arg::new("quality")
+                        .long("quality")
+                        .help("Preferred stream type for download")
+                        .value_parser(["audio-only", "lowest", "highest"])
+                        .default_value("audio-only"),
+                )
+                .arg(
+                    Arg::new("continue-on-error")
+                        .long("continue-on-error")
+                        .help("Continue downloading other VODs if one fails")
+                        .action(ArgAction::SetTrue),
+                ),
+        )
+        .subcommand(
+            Command::new("transcribe-all")
+                .about("Transcribe all downloaded-but-not-transcribed artifacts")
+                .arg(
+                    Arg::new("output-root")
+                        .long("output-root")
+                        .help("Directory where artifact folders are stored")
+                        .default_value("artifacts"),
+                )
+                .arg(
+                    Arg::new("continue-on-error")
+                        .long("continue-on-error")
+                        .help("Continue transcribing other artifacts if one fails")
+                        .action(ArgAction::SetTrue),
+                ),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -257,6 +312,35 @@ pub fn parse_args() -> Cli {
                         .get_one::<String>("output-root")
                         .expect("output-root has a default value"),
                 ),
+            },
+        },
+        Some(("download-all", download_all_matches)) => Cli {
+            command: CliCommand::DownloadAll {
+                channel: download_all_matches
+                    .get_one::<String>("channel")
+                    .expect("channel is required by clap")
+                    .clone(),
+                output_root: PathBuf::from(
+                    download_all_matches
+                        .get_one::<String>("output-root")
+                        .expect("output-root has a default value"),
+                ),
+                quality: QualityPreference::parse(
+                    download_all_matches
+                        .get_one::<String>("quality")
+                        .expect("quality has a default value"),
+                ),
+                continue_on_error: download_all_matches.get_flag("continue-on-error"),
+            },
+        },
+        Some(("transcribe-all", transcribe_all_matches)) => Cli {
+            command: CliCommand::TranscribeAll {
+                output_root: PathBuf::from(
+                    transcribe_all_matches
+                        .get_one::<String>("output-root")
+                        .expect("output-root has a default value"),
+                ),
+                continue_on_error: transcribe_all_matches.get_flag("continue-on-error"),
             },
         },
         _ => unreachable!("clap enforces a subcommand"),

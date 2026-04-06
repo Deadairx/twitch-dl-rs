@@ -125,7 +125,7 @@ Note: add `tempfile` to Cargo.toml dev-dependencies if not present.
   - Estimate: 45m
   - Files: src/twitch.rs, src/artifact.rs, src/cli.rs, src/main.rs, Cargo.toml
   - Verify: cargo test artifact::tests && cargo build 2>&1 | grep -v 'warning' | head -20
-- [ ] **T02: Extract download/transcribe helpers and add download-all and transcribe-all commands** — Refactor process_vod() into two composable stage helpers, then add download-all and transcribe-all commands that call them. The existing process command must continue to work.
+- [x] **T02: Extract download/transcribe helpers and add download-all and transcribe-all commands** — Refactor process_vod() into two composable stage helpers, then add download-all and transcribe-all commands that call them. The existing process command must continue to work.
 
 ## Steps
 

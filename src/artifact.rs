@@ -155,6 +155,12 @@ pub struct ProcessStatus {
     pub transcribed: bool,
     pub last_error: Option<String>,
     pub updated_at_epoch_s: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcription_outcome: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcription_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript_word_count: Option<u64>,
 }
 
 impl ProcessStatus {
@@ -172,6 +178,9 @@ impl ProcessStatus {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
+            transcription_outcome: None,
+            transcription_reason: None,
+            transcript_word_count: None,
         }
     }
 }
@@ -266,5 +275,19 @@ mod tests {
         let read_back = read_status(&artifact_dir).unwrap().unwrap();
         assert_eq!(read_back.downloaded, true);
         assert_eq!(read_back.video_id, "123456");
+    }
+
+    #[test]
+    fn test_process_status_backward_compat() {
+        // Deserialize old schema without new transcription fields
+        let old_json = r#"{"schema_version":1,"video_id":"abc","source_url":"https://twitch.tv/videos/abc","media_file":null,"transcript_file":null,"downloaded":true,"transcribed":false,"last_error":null,"updated_at_epoch_s":0}"#;
+        let status: ProcessStatus = serde_json::from_str(old_json).unwrap();
+        assert_eq!(status.video_id, "abc");
+        assert_eq!(status.downloaded, true);
+        assert_eq!(status.transcribed, false);
+        // All new fields should default to None
+        assert_eq!(status.transcription_outcome, None);
+        assert_eq!(status.transcription_reason, None);
+        assert_eq!(status.transcript_word_count, None);
     }
 }

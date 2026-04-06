@@ -68,6 +68,28 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        cli::CliCommand::DownloadAll {
+            channel,
+            output_root,
+            quality,
+            continue_on_error,
+        } => {
+            if let Err(error) =
+                download_all(&channel, &output_root, quality, continue_on_error).await
+            {
+                eprintln!("Download-all failed: {error}");
+                std::process::exit(1);
+            }
+        }
+        cli::CliCommand::TranscribeAll {
+            output_root,
+            continue_on_error,
+        } => {
+            if let Err(error) = transcribe_all(&output_root, continue_on_error).await {
+                eprintln!("Transcribe-all failed: {error}");
+                std::process::exit(1);
+            }
+        }
     }
 }
 
@@ -242,6 +264,106 @@ async fn process_channel(
     Ok(())
 }
 
+async fn download_vod_to_artifact(
+    vod: &twitch::VodEntry,
+    output_root: &std::path::Path,
+    quality: cli::QualityPreference,
+    status: &mut artifact::ProcessStatus,
+) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    let artifact_dir = output_root.join(&vod.video_id);
+    if let Some(existing) = artifact::find_media_file(&artifact_dir) {
+        println!("Reusing existing media for {}", vod.video_id);
+        status.downloaded = true;
+        status.media_file = existing.file_name().map(|n| n.to_string_lossy().to_string());
+        return Ok(existing);
+    }
+    println!("Downloading {} | {}", vod.video_id, vod.title);
+    let downloaded_dir = download_vod(&vod.url, None, output_root, quality).await?;
+    let media_path = artifact::find_media_file(&downloaded_dir)
+        .ok_or_else(|| format!("missing media file after download for {}", vod.video_id))?;
+    status.downloaded = true;
+    status.media_file = media_path.file_name().map(|n| n.to_string_lossy().to_string());
+    status.last_error = None;
+    status.updated_at_epoch_s = now_epoch_s();
+    artifact::write_status(&downloaded_dir, status)?;
+    Ok(media_path)
+}
+
+fn get_audio_duration_secs(audio_path: &std::path::Path) -> Option<f64> {
+    let output = std::process::Command::new("ffprobe")
+        .args(["-v", "quiet", "-print_format", "json", "-show_streams"])
+        .arg(audio_path)
+        .output()
+        .ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    json["streams"][0]["duration"]
+        .as_str()
+        .and_then(|d| d.parse().ok())
+}
+
+fn transcribe_artifact(
+    video_id: &str,
+    artifact_dir: &std::path::Path,
+    media_path: &std::path::Path,
+    status: &mut artifact::ProcessStatus,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Reuse check for existing srt+vtt
+    let srt_path = artifact_dir.join("transcript.srt");
+    let vtt_path = artifact_dir.join("transcript.vtt");
+    if srt_path.exists() && vtt_path.exists() && status.transcribed {
+        println!("Reusing existing transcript for {}", video_id);
+        return Ok(());
+    }
+
+    // Get audio duration for word-count heuristic
+    let duration_secs = get_audio_duration_secs(media_path);
+
+    println!("Transcribing {} with hear...", video_id);
+    match transcribe::transcribe_to_srt_and_vtt(media_path, artifact_dir, duration_secs) {
+        transcribe::TranscriptionOutcome::Completed {
+            srt_path,
+            vtt_path: _,
+            word_count,
+        } => {
+            status.transcribed = true;
+            status.transcription_outcome = Some("completed".to_string());
+            status.transcription_reason = None;
+            status.transcript_word_count = Some(word_count);
+            status.transcript_file = srt_path.file_name().map(|n| n.to_string_lossy().to_string());
+            status.last_error = None;
+            status.updated_at_epoch_s = now_epoch_s();
+            artifact::write_status(artifact_dir, status)?;
+            Ok(())
+        }
+        transcribe::TranscriptionOutcome::Suspect {
+            srt_path,
+            vtt_path: _,
+            word_count,
+            reason,
+        } => {
+            // suspect: leave transcribed=false, set outcome fields, do NOT return Err
+            status.transcribed = false;
+            status.transcription_outcome = Some("suspect".to_string());
+            status.transcription_reason = Some(reason);
+            status.transcript_word_count = Some(word_count);
+            status.transcript_file = srt_path.file_name().map(|n| n.to_string_lossy().to_string());
+            status.last_error = None;
+            status.updated_at_epoch_s = now_epoch_s();
+            artifact::write_status(artifact_dir, status)?;
+            Ok(()) // NOT an error — pipeline continues
+        }
+        transcribe::TranscriptionOutcome::Failed { reason } => {
+            status.transcribed = false;
+            status.transcription_outcome = Some("failed".to_string());
+            status.transcription_reason = Some(reason.clone());
+            status.last_error = Some(reason.clone());
+            status.updated_at_epoch_s = now_epoch_s();
+            artifact::write_status(artifact_dir, status)?;
+            Err(reason.into())
+        }
+    }
+}
+
 async fn process_vod(
     vod: &twitch::VodEntry,
     output_root: &std::path::Path,
@@ -251,53 +373,90 @@ async fn process_vod(
     artifact::prepare_artifact_dir(&artifact_dir)?;
     let mut status = artifact::read_status(&artifact_dir)?
         .unwrap_or_else(|| artifact::ProcessStatus::new(&vod.video_id, &vod.url));
+    let media_path = download_vod_to_artifact(vod, output_root, quality, &mut status).await?;
+    transcribe_artifact(&vod.video_id, &artifact_dir, &media_path, &mut status)?;
+    Ok(())
+}
 
-    let media_path = if let Some(existing) = artifact::find_media_file(&artifact_dir) {
-        println!("Reusing existing media for {}", vod.video_id);
-        status.downloaded = true;
-        status.media_file = existing.file_name().map(|name| name.to_string_lossy().to_string());
-        existing
-    } else {
-        println!("Downloading {} | {}", vod.video_id, vod.title);
-        let artifact_dir = download_vod(&vod.url, None, output_root, quality).await?;
-        let media_path = artifact::find_media_file(&artifact_dir)
-            .ok_or_else(|| format!("missing media file after download for {}", vod.video_id))?;
-        status.downloaded = true;
-        status.media_file = media_path.file_name().map(|name| name.to_string_lossy().to_string());
-        status.last_error = None;
-        status.updated_at_epoch_s = now_epoch_s();
-        artifact::write_status(&artifact_dir, &status)?;
-        media_path
-    };
+async fn download_all(
+    channel: &str,
+    output_root: &std::path::Path,
+    quality: cli::QualityPreference,
+    continue_on_error: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let queue_file = artifact::read_queue_file(output_root, channel)?;
+    let pending: Vec<_> = queue_file
+        .queued
+        .into_iter()
+        .filter(|vod| {
+            let artifact_dir = output_root.join(&vod.video_id);
+            let status = artifact::read_status(&artifact_dir).unwrap_or(None);
+            !status.map(|s| s.downloaded).unwrap_or(false)
+        })
+        .collect();
 
-    let transcript_path = artifact_dir.join("transcript.txt");
-    if transcript_path.exists() {
-        println!("Reusing existing transcript for {}", vod.video_id);
-        status.transcribed = true;
-        status.transcript_file = Some("transcript.txt".to_string());
-        status.last_error = None;
-        status.updated_at_epoch_s = now_epoch_s();
-        artifact::write_status(&artifact_dir, &status)?;
+    if pending.is_empty() {
+        println!("All queued VODs already downloaded.");
         return Ok(());
     }
-
-    println!("Transcribing {} with mlx-whisper...", vod.video_id);
-    match transcribe::transcribe_to_txt(&media_path, &artifact_dir) {
-        Ok(path) => {
-            status.transcribed = true;
-            status.transcript_file = path.file_name().map(|name| name.to_string_lossy().to_string());
-            status.last_error = None;
-        }
-        Err(error) => {
-            status.last_error = Some(error.to_string());
-            status.updated_at_epoch_s = now_epoch_s();
-            artifact::write_status(&artifact_dir, &status)?;
-            return Err(Box::new(error));
+    println!("Downloading {} pending VOD(s) for {channel}...", pending.len());
+    for vod in pending {
+        let artifact_dir = output_root.join(&vod.video_id);
+        artifact::prepare_artifact_dir(&artifact_dir)?;
+        let mut status = artifact::read_status(&artifact_dir)?
+            .unwrap_or_else(|| artifact::ProcessStatus::new(&vod.video_id, &vod.url));
+        match download_vod_to_artifact(&vod, output_root, quality, &mut status).await {
+            Ok(_) => println!("Downloaded {}", vod.video_id),
+            Err(e) => {
+                eprintln!("Failed {}: {e}", vod.video_id);
+                if !continue_on_error {
+                    return Err(e);
+                }
+            }
         }
     }
+    Ok(())
+}
 
-    status.updated_at_epoch_s = now_epoch_s();
-    artifact::write_status(&artifact_dir, &status)?;
+async fn transcribe_all(
+    output_root: &std::path::Path,
+    continue_on_error: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let items = artifact::scan_artifact_statuses(output_root)?;
+    let pending: Vec<_> = items
+        .into_iter()
+        .filter_map(|(video_id, status)| {
+            let s = status?;
+            if s.downloaded
+                && !s.transcribed
+                && s.transcription_outcome.as_deref() != Some("suspect")
+            {
+                Some((video_id, s))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if pending.is_empty() {
+        println!("No artifacts pending transcription.");
+        return Ok(());
+    }
+    println!("Transcribing {} artifact(s)...", pending.len());
+    for (video_id, mut status) in pending {
+        let artifact_dir = output_root.join(&video_id);
+        let media_path = artifact::find_media_file(&artifact_dir)
+            .ok_or_else(|| format!("media file missing for {} despite downloaded=true", video_id))?;
+        match transcribe_artifact(&video_id, &artifact_dir, &media_path, &mut status) {
+            Ok(()) => println!("Transcribed {}", video_id),
+            Err(e) => {
+                eprintln!("Failed {}: {e}", video_id);
+                if !continue_on_error {
+                    return Err(e);
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -321,14 +480,26 @@ async fn show_status(output_root: &std::path::Path) -> Result<(), Box<dyn std::e
         println!("No artifacts found in {}", output_root.display());
         return Ok(());
     }
-    println!("{:<15} {:<12} {:<12} {}", "VIDEO_ID", "DOWNLOADED", "TRANSCRIBED", "LAST_ERROR");
+    println!("{:<15} {:<12} {:<12} {}", "VIDEO_ID", "DOWNLOADED", "OUTCOME", "REASON");
     println!("{}", "-".repeat(70));
     for (video_id, status) in &items {
         match status {
             Some(s) => {
-                let last_err = s.last_error.as_deref().unwrap_or("-");
-                let truncated = if last_err.len() > 40 { &last_err[..40] } else { last_err };
-                println!("{:<15} {:<12} {:<12} {}", video_id, s.downloaded, s.transcribed, truncated);
+                let outcome = s.transcription_outcome.as_deref().unwrap_or("-");
+                let reason = s
+                    .transcription_reason
+                    .as_deref()
+                    .or(s.last_error.as_deref())
+                    .unwrap_or("-");
+                let truncated = if reason.len() > 40 {
+                    &reason[..40]
+                } else {
+                    reason
+                };
+                println!(
+                    "{:<15} {:<12} {:<12} {}",
+                    video_id, s.downloaded, outcome, truncated
+                );
             }
             None => println!("{:<15} {:<12} {:<12} {}", video_id, "(no status)", "-", "-"),
         }
