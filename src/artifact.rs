@@ -161,6 +161,8 @@ pub struct ProcessStatus {
     pub transcription_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transcript_word_count: Option<u64>,
+    #[serde(default)]
+    pub ready_for_notes: bool,
 }
 
 impl ProcessStatus {
@@ -181,6 +183,7 @@ impl ProcessStatus {
             transcription_outcome: None,
             transcription_reason: None,
             transcript_word_count: None,
+            ready_for_notes: false,
         }
     }
 }
@@ -289,5 +292,30 @@ mod tests {
         assert_eq!(status.transcription_outcome, None);
         assert_eq!(status.transcription_reason, None);
         assert_eq!(status.transcript_word_count, None);
+    }
+
+    #[test]
+    fn test_ready_for_notes_backward_compat() {
+        // Old status.json without ready_for_notes field should deserialize as false
+        let old_json = r#"{"schema_version":1,"video_id":"123","source_url":"https://twitch.tv/videos/123","media_file":null,"transcript_file":null,"downloaded":true,"transcribed":true,"last_error":null,"updated_at_epoch_s":0,"transcription_outcome":"completed"}"#;
+        let status: ProcessStatus = serde_json::from_str(old_json).unwrap();
+        assert_eq!(status.ready_for_notes, false);
+    }
+
+    #[test]
+    fn test_ready_for_notes_roundtrip() {
+        let dir = tempdir().unwrap();
+        let artifact_dir = dir.path().join("999");
+        fs::create_dir_all(&artifact_dir).unwrap();
+        let mut status = ProcessStatus::new("999", "https://www.twitch.tv/videos/999");
+        status.downloaded = true;
+        status.transcribed = true;
+        status.ready_for_notes = true;
+        status.transcription_outcome = Some("completed".to_string());
+        write_status(&artifact_dir, &status).unwrap();
+        let read_back = read_status(&artifact_dir).unwrap().unwrap();
+        assert_eq!(read_back.ready_for_notes, true);
+        assert_eq!(read_back.transcribed, true);
+        assert_eq!(read_back.transcription_outcome, Some("completed".to_string()));
     }
 }

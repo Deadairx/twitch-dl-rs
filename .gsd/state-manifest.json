@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-04-06T03:08:31.935Z",
+  "exported_at": "2026-04-06T03:15:09.584Z",
   "milestones": [
     {
       "id": "M001",
@@ -76,14 +76,14 @@
       "milestone_id": "M001",
       "id": "S03",
       "title": "Trustworthy transcription and failure surfacing",
-      "status": "pending",
+      "status": "complete",
       "risk": "high",
       "depends": [],
       "demo": "Finished items produce transcript artifacts you can trust more than the current fast path, and failed transcriptions show clear reasons and remain recoverable.",
       "created_at": "2026-04-05T03:56:39.887Z",
-      "completed_at": null,
-      "full_summary_md": "",
-      "full_uat_md": "",
+      "completed_at": "2026-04-06T03:10:51.659Z",
+      "full_summary_md": "---\nid: S03\nparent: M001\nmilestone: M001\nprovides:\n  - Three-outcome transcription (completed/suspect/failed) with structured failure reasons\n  - SRT and VTT transcript artifacts with quality heuristics applied\n  - Backward-compatible ProcessStatus extension with transcription metadata\n  - hear-based transcription replacing mlx-whisper with verifiable output\nrequires:\n  - slice: S01\n    provides: Durable artifact state and status.json persistence\n  - slice: S02\n    provides: Staged processing dispatch and transcribe-all command\naffects:\n  - S04\n  - S05\nkey_files:\n  - src/transcribe.rs\n  - src/artifact.rs\n  - src/main.rs\n  - src/lib.rs\nkey_decisions:\n  - Replaced mlx-whisper with hear -d -i -S invocation for on-device transcription\n  - Suspect transcriptions do NOT block pipeline (outcome visible, retried on rerun)\n  - Word-count threshold: 50 words/hour of audio duration\n  - Repetition detection: trigrams appearing >10 times in 200-word window\n  - Both SRT and VTT must succeed for completed outcome\npatterns_established:\n  - TranscriptionOutcome enum as non-Result error type\n  - Heuristics applied at transcription boundary, not downstream\n  - Partial file cleanup at start of transcription to prevent stale state\n  - Status display shows three-valued outcome column with reason truncation\nobservability_surfaces:\n  - show_status command: OUTCOME and REASON columns\n  - ProcessStatus.transcription_outcome, transcription_reason, transcript_word_count in artifact state\n  - hear stderr captured and persisted as reason on failed outcome\ndrill_down_paths:\n  - .gsd/milestones/M001/slices/S03/tasks/T01-SUMMARY.md\n  - .gsd/milestones/M001/slices/S03/tasks/T02-SUMMARY.md\nduration: \"\"\nverification_result: passed\ncompleted_at: 2026-04-06T03:10:51.661Z\nblocker_discovered: false\n---\n\n# S03: Trustworthy transcription and failure surfacing\n\n**Replaced mlx-whisper with hear-backed transcription, added quality heuristics, and surfaced three terminal outcomes (completed/suspect/failed) with structured failure reasons in artifact state.**\n\n## What Happened\n\nT01 rewrote src/transcribe.rs to replace the mlx-whisper invocation with a hear-based transcription pipeline. Implemented TranscriptionOutcome enum (Completed/Suspect/Failed variants) with no Result wrapper, hear invocation as `hear -d -i <audio-file> -S` capturing stdout as transcript.srt, pure Rust SRT→VTT conversion (prepend WEBVTT header, strip sequence numbers, normalize timestamps), word-count threshold heuristic (flag suspect if < 50 words/hour of audio), and repetition detection heuristic (flag suspect if trigram appears >10 times in 200-word window). Extended ProcessStatus in src/artifact.rs with three new optional fields (backward-compatible via serde defaults): transcription_outcome, transcription_reason, transcript_word_count. Implemented partial file cleanup at transcription start.\n\nT02 wired TranscriptionOutcome into src/main.rs. transcribe_artifact() now maps outcome variants to ProcessStatus fields: Completed sets transcribed=true and outcome=\"completed\"; Suspect sets transcribed=false and outcome=\"suspect\" without failing (pipeline continues); Failed sets transcribed=false and outcome=\"failed\" and returns error. Added get_audio_duration_secs() helper to retrieve audio duration via ffprobe for word-count heuristic. Updated transcribe_all() filter to skip items with transcription_outcome==\"suspect\". Updated show_status() table with OUTCOME column (completed/suspect/failed/—) and REASON column with 40-char truncation and fallback to last_error.\n\nAll 11 unit tests pass (7 transcribe, 4 artifact). Cargo build produces zero warnings.\"\n\n## Verification\n\nAll 11 unit tests pass: `cargo test transcribe::tests` (7/7) and `cargo test artifact::tests` (4/4). Build successful with zero warnings. Code inspection confirms: TranscriptionOutcome mapping in transcribe_artifact() handles all three variants correctly with proper ProcessStatus field assignments; transcribe_all() filter skips suspect items; show_status() displays OUTCOME and REASON columns with truncation. Backward compatibility test confirms old JSON files without new fields deserialize cleanly.\"\n\n## Requirements Advanced\n\n- R004 — Completed transcript artifacts now pass quality heuristics (word-count and repetition checks); suspect items are visible and separately marked; failed items show clear reasons. Trustworthiness is enhanced vs. the old fast path.\n- R005 — Three-outcome transcription (completed/suspect/failed) is now visible in status.json and status command output; failure reasons (heuristic triggers or hear errors) are structured and displayed; items remain in durable artifact state for recovery.\n\n## Requirements Validated\n\n- R004 — Unit tests verify heuristics work correctly (word-count threshold, repetition detection); completed artifacts have both SRT and VTT; backward compat test confirms state integrity\n- R005 — Status display shows OUTCOME and REASON columns; transcription_reason field captures structured failure reasons; suspect and failed items remain visible and recoverable\n\n## New Requirements Surfaced\n\nNone.\n\n## Requirements Invalidated or Re-scoped\n\nNone.\n\n## Deviations\n\n\n  \"None. Implementation matches plan exactly.\"\n\n## Known Limitations\n\n\n  \"1. No manual force-retry for suspect items (deferred to M002). 2. Assumes hear handles multi-hour .m4a files (chunking becomes blocker if it doesn't). 3. No AI correction pass (deferred to M002). 4. Locale and punctuation flags not wired. 5. No plain-text transcript format.\"\n\n## Follow-ups\n\n\n  \"1. Real-world testing on long VODs (>2h) to validate hear performance and heuristic accuracy. 2. Suspect item handling UX (should transcribe-all have --force-retry flag?). 3. Downstream integration with S04: how should suspect transcriptions be treated in ready-for-notes state?\"\n\n## Files Created/Modified\n\n- `src/transcribe.rs` — Replaced mlx-whisper with hear-backed transcription, added TranscriptionOutcome enum, SRT→VTT conversion, quality heuristics, unit tests\n- `src/artifact.rs` — Extended ProcessStatus with transcription_outcome, transcription_reason, transcript_word_count fields (backward-compatible)\n- `src/main.rs` — Wired TranscriptionOutcome into transcribe_artifact(), added get_audio_duration_secs(), updated transcribe_all() filter, updated show_status() display\n- `src/lib.rs` — Created to enable unit testing on binary-only crate\n",
+      "full_uat_md": "# S03: Trustworthy transcription and failure surfacing — UAT\n\n**Milestone:** M001\n**Written:** 2026-04-06T03:10:51.661Z\n\n# S03: Trustworthy transcription and failure surfacing — UAT\n\n**Milestone:** M001\n**Written:** 2026-04-06\n\n## UAT Type\n\n- **Mode**: Artifact-driven (inspect status.json and transcript artifacts directly; no runtime server)\n- **Why this mode is sufficient**: Transcription is stateless per-item and produces filesystem artifacts (transcript.srt, transcript.vtt, status.json fields). All outcomes are observable as persistent artifact state.\n\n## Preconditions\n\n1. **Build must be current**: `cargo build && cargo test --lib` passes with zero warnings and 11/11 tests passing.\n2. **hear binary must be available**: `which hear` succeeds.\n3. **ffprobe must be available**: `which ffprobe` succeeds.\n\n## Test Cases\n\n### 1. Completed Outcome: Valid audio produces transcript artifacts with completed status\n- Run transcription on valid 30-second audio\n- Expected: status.json contains `\"transcription_outcome\": \"completed\"`, both transcript.srt and transcript.vtt exist, status.transcribed=true\n\n### 2. Suspect Outcome: Short audio triggers word-count heuristic\n- Run transcription on very short audio (10 seconds, minimal speech)\n- Expected: status.json contains `\"transcription_outcome\": \"suspect\"`, reason contains \"word count\", transcript.srt and transcript.vtt exist, status.transcribed=false\n\n### 3. Suspect Outcome: Repetition heuristic\n- Run transcription on audio with high repetition\n- Expected: status.json contains `\"transcription_outcome\": \"suspect\"`, reason contains \"repeated trigram\"\n\n### 4. Failed Outcome: Invalid audio causes transcription failure\n- Run transcription on corrupted audio file\n- Expected: status.json contains `\"transcription_outcome\": \"failed\"`, reason contains error message, transcript artifacts do NOT exist\n\n### 5. Suspect Items Are Skipped on Re-run\n- After suspect outcome, re-run transcribe-all\n- Expected: Item is skipped (not re-transcribed), status.json outcome remains \"suspect\", transcript file timestamps unchanged\n\n### 6. Completed Items Are Skipped on Re-run\n- After completed outcome, re-run transcribe-all\n- Expected: Item is skipped, status.json unchanged\n\n### 7. Failed Items Are Retried on Re-run\n- After failed outcome, replace invalid audio with valid file\n- Re-run transcribe-all\n- Expected: transcription succeeds, outcome changes to \"completed\" or \"suspect\"\n\n### 8. Status Display Shows OUTCOME and REASON Columns\n- Run `cargo run -- status`\n- Expected: Table shows VIDEO_ID, DOWNLOADED, OUTCOME, REASON columns with correct values\n\n### 9. SRT↔VTT Conversion Correctness\n- After successful transcription, compare transcript.srt and transcript.vtt\n- Expected: VTT has WEBVTT header, timestamps use dots (not commas), no sequence numbers, text content identical\"\n",
       "goal": "Replace the mlx-whisper transcription path with a `hear -d -i <audio-file> -S` invocation, capture stdout as transcript.srt, convert to transcript.vtt, apply quality heuristics (word-count and repetition), and persist one of three terminal outcomes (completed / suspect / failed) with structured reasons into status.json.",
       "success_criteria": "- `cargo test` passes with new unit tests covering SRT→VTT conversion, quality heuristics, and ProcessStatus backward compat\n- `cargo build` produces no warnings\n- `transcribe-all` skips completed and suspect items on re-run; retries only failed items\n- status command shows OUTCOME column distinguishing completed / suspect / failed\n- status.json contains transcription_outcome, transcription_reason, transcript_word_count for each processed artifact\n- Both transcript.srt and transcript.vtt are written for completed items",
       "proof_level": "contract — unit-tested API + CLI wire-up verified with build and status-command output; real audio smoke test confirms end-to-end wiring",
@@ -98,21 +98,17 @@
       "title": "Ready-for-notes and manual cleanup workflow",
       "status": "pending",
       "risk": "medium",
-      "depends": [
-        "S01",
-        "S02",
-        "S03"
-      ],
+      "depends": [],
       "demo": "Completed transcripts enter a clear ready-for-notes state, and a cleanup command shows only safe deletion candidates without auto-deleting anything.",
       "created_at": "2026-04-05T03:56:39.887Z",
       "completed_at": null,
       "full_summary_md": "",
       "full_uat_md": "",
-      "goal": "",
-      "success_criteria": "",
-      "proof_level": "",
-      "integration_closure": "",
-      "observability_impact": "",
+      "goal": "Surface a `ready_for_notes` lifecycle state automatically when transcription completes successfully, and provide a two-step cleanup command that lists audio and intermediate deletion candidates for operator review before any deletion occurs.",
+      "success_criteria": "`cargo test artifact::tests` passes including new `ready_for_notes` backward-compat and round-trip tests; `cargo build` is clean; `./target/debug/twitch-dl-rs cleanup --help` shows `--delete` and `--all` flags; running `cleanup --output-root` on a synthetic artifact dir with `ready_for_notes: true` in status.json lists the item with file sizes; running `cleanup --output-root` on a dir with no ready items prints \"No ready-for-notes artifacts found\"; `status` command shows `READY` marker for completed items.",
+      "proof_level": "This slice proves: contract + integration. Real runtime required: no (unit tests + CLI smoke tests against synthetic fixtures). Human/UAT required: no.",
+      "integration_closure": "Upstream surfaces consumed: `ProcessStatus` in `src/artifact.rs`, `transcribe_artifact()` in `src/main.rs`, `scan_artifact_statuses()` in `src/artifact.rs`, `CliCommand` enum and clap wiring in `src/cli.rs`. New wiring: `ready_for_notes` field set at the `Completed` outcome boundary; `cleanup` subcommand registered and dispatched through the main match block. What remains: S05 end-to-end proof.",
+      "observability_impact": "`status` command gains a READY column visible at a glance. Cleanup listing output shows per-item file sizes before deletion. `status.json` gains a durable `ready_for_notes` boolean that S05 can inspect programmatically.",
       "sequence": 0,
       "replan_triggered_at": null
     },
@@ -404,6 +400,82 @@
       "observability_impact": "status command now shows OUTCOME column (completed/suspect/failed/-) and REASON column; suspects are visually distinct from not-yet-transcribed; failed items show reason for diagnosis",
       "full_plan_md": "",
       "sequence": 0
+    },
+    {
+      "milestone_id": "M001",
+      "slice_id": "S04",
+      "id": "T01",
+      "title": "Add ready_for_notes field to ProcessStatus with automatic state transition on transcription completion",
+      "status": "complete",
+      "one_liner": "Add ready_for_notes field to ProcessStatus with automatic state transition on transcription completion",
+      "narrative": "Added `ready_for_notes: bool` field to ProcessStatus struct with backward-compatible `#[serde(default)]` attribute. Updated ProcessStatus::new() to initialize the field as false. Wired automatic state transition by setting `ready_for_notes = true` in the Completed match arm of transcribe_artifact(). Updated show_status() command to display a READY column showing \"yes\" when ready_for_notes is true. Implemented two unit tests: test_ready_for_notes_backward_compat confirms old status.json files without the field deserialize as false, and test_ready_for_notes_roundtrip confirms true values persist through write/read cycles. All six artifact tests pass, zero build warnings or errors.",
+      "verification_result": "Ran `cargo test artifact::tests` - all 6 tests pass (test_ready_for_notes_backward_compat, test_ready_for_notes_roundtrip, test_status_roundtrip, test_read_queue_file_roundtrip, test_scan_artifact_statuses_empty, test_process_status_backward_compat). Ran `cargo build` - compiled successfully with zero errors and zero warnings. Implementation verified: ready_for_notes field present in ProcessStatus, serde default attribute correctly applied, show_status() displays READY column with appropriate formatting, transcribe_artifact() sets ready_for_notes=true only in Completed arm.",
+      "duration": "",
+      "completed_at": "2026-04-06T03:15:09.553Z",
+      "blocker_discovered": false,
+      "deviations": "None.",
+      "known_issues": "None.",
+      "key_files": [
+        "src/artifact.rs",
+        "src/main.rs"
+      ],
+      "key_decisions": [],
+      "full_summary_md": "---\nid: T01\nparent: S04\nmilestone: M001\nkey_files:\n  - src/artifact.rs\n  - src/main.rs\nkey_decisions:\n  - (none)\nduration: \nverification_result: passed\ncompleted_at: 2026-04-06T03:15:09.551Z\nblocker_discovered: false\n---\n\n# T01: Add ready_for_notes field to ProcessStatus with automatic state transition on transcription completion\n\n**Add ready_for_notes field to ProcessStatus with automatic state transition on transcription completion**\n\n## What Happened\n\nAdded `ready_for_notes: bool` field to ProcessStatus struct with backward-compatible `#[serde(default)]` attribute. Updated ProcessStatus::new() to initialize the field as false. Wired automatic state transition by setting `ready_for_notes = true` in the Completed match arm of transcribe_artifact(). Updated show_status() command to display a READY column showing \"yes\" when ready_for_notes is true. Implemented two unit tests: test_ready_for_notes_backward_compat confirms old status.json files without the field deserialize as false, and test_ready_for_notes_roundtrip confirms true values persist through write/read cycles. All six artifact tests pass, zero build warnings or errors.\n\n## Verification\n\nRan `cargo test artifact::tests` - all 6 tests pass (test_ready_for_notes_backward_compat, test_ready_for_notes_roundtrip, test_status_roundtrip, test_read_queue_file_roundtrip, test_scan_artifact_statuses_empty, test_process_status_backward_compat). Ran `cargo build` - compiled successfully with zero errors and zero warnings. Implementation verified: ready_for_notes field present in ProcessStatus, serde default attribute correctly applied, show_status() displays READY column with appropriate formatting, transcribe_artifact() sets ready_for_notes=true only in Completed arm.\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `cargo test artifact::tests` | 0 | ✅ pass | 70ms |\n| 2 | `cargo build` | 0 | ✅ pass | 60ms |\n\n## Deviations\n\nNone.\n\n## Known Issues\n\nNone.\n\n## Files Created/Modified\n\n- `src/artifact.rs`\n- `src/main.rs`\n",
+      "description": "Add `ready_for_notes: bool` to `ProcessStatus` in `src/artifact.rs` with `#[serde(default)]` for backward compatibility. Set `status.ready_for_notes = true` in `transcribe_artifact()` in `src/main.rs` inside the `Completed` match arm, alongside the existing `status.transcribed = true`. Update `show_status()` to include a READY column (shows `yes` / `-`) after the OUTCOME column. Add two unit tests in `src/artifact.rs`: one confirming that old `status.json` JSON without the field deserializes as `false`, and one confirming `ready_for_notes = true` round-trips through write/read. Do NOT set `ready_for_notes` on `Suspect` or `Failed` outcomes.",
+      "estimate": "30m",
+      "files": [
+        "src/artifact.rs",
+        "src/main.rs"
+      ],
+      "verify": "cargo test artifact::tests 2>&1 | grep -E 'test result|FAILED' && cargo build 2>&1 | grep -E 'error|warning'",
+      "inputs": [
+        "src/artifact.rs",
+        "src/main.rs"
+      ],
+      "expected_output": [
+        "src/artifact.rs",
+        "src/main.rs"
+      ],
+      "observability_impact": "show_status gains a READY column; status.json gains a durable ready_for_notes boolean field",
+      "full_plan_md": "",
+      "sequence": 0
+    },
+    {
+      "milestone_id": "M001",
+      "slice_id": "S04",
+      "id": "T02",
+      "title": "Add cleanup CLI command with candidate listing and --delete flag",
+      "status": "pending",
+      "one_liner": "",
+      "narrative": "",
+      "verification_result": "",
+      "duration": "",
+      "completed_at": null,
+      "blocker_discovered": false,
+      "deviations": "",
+      "known_issues": "",
+      "key_files": [],
+      "key_decisions": [],
+      "full_summary_md": "",
+      "description": "Add a `cleanup` CLI subcommand that lists `ready_for_notes == true` artifacts as deletion candidates, showing per-item file sizes for `audio.m4a` and `transcript.srt`. With `--delete --all` or `--delete <video_id>`, remove those two files for the specified item(s). Never touch `transcript.vtt`, `metadata.json`, `status.json`, or `source_url.txt`. Eligibility is gated on `ready_for_notes == true` from the status field — NOT on file presence alone. Items with `suspect` or `failed` outcomes never appear as candidates.\n\nCLI contract:\n- `cleanup --output-root <dir>` — lists candidates with file sizes, no deletion\n- `cleanup --output-root <dir> --delete <video_id>` — deletes audio.m4a and transcript.srt for that specific video_id (must be a ready_for_notes candidate)\n- `cleanup --output-root <dir> --delete --all` — deletes audio.m4a and transcript.srt for ALL listed candidates\n- Running `--delete` without either a video_id or `--all` is an error\n\nVerification test: create a temp dir, write a synthetic `status.json` with `ready_for_notes: true, transcribed: true, transcription_outcome: 'completed'`, create dummy `audio.m4a` and `transcript.srt` files. Run the binary with `cleanup --output-root <tmpdir>` and verify the item appears. Run with `--delete --all` and verify both files are removed while `status.json` and `transcript.vtt` (if present) remain.",
+      "estimate": "45m",
+      "files": [
+        "src/cli.rs",
+        "src/main.rs"
+      ],
+      "verify": "cargo build 2>&1 | grep -c error | grep -q '^0' && ./target/debug/twitch-dl-rs cleanup --help | grep -q 'delete' && ./target/debug/twitch-dl-rs --help | grep -q cleanup",
+      "inputs": [
+        "src/cli.rs",
+        "src/main.rs",
+        "src/artifact.rs"
+      ],
+      "expected_output": [
+        "src/cli.rs",
+        "src/main.rs"
+      ],
+      "observability_impact": "cleanup command provides candidate listing with file sizes; deletion confirms each removed file by name",
+      "full_plan_md": "",
+      "sequence": 0
     }
   ],
   "decisions": [
@@ -627,6 +699,28 @@
       "verdict": "✅ pass",
       "duration_ms": 2450,
       "created_at": "2026-04-06T03:08:31.907Z"
+    },
+    {
+      "id": 10,
+      "task_id": "T01",
+      "slice_id": "S04",
+      "milestone_id": "M001",
+      "command": "cargo test artifact::tests",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 70,
+      "created_at": "2026-04-06T03:15:09.553Z"
+    },
+    {
+      "id": 11,
+      "task_id": "T01",
+      "slice_id": "S04",
+      "milestone_id": "M001",
+      "command": "cargo build",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 60,
+      "created_at": "2026-04-06T03:15:09.553Z"
     }
   ]
 }

@@ -326,6 +326,7 @@ fn transcribe_artifact(
             word_count,
         } => {
             status.transcribed = true;
+            status.ready_for_notes = true;
             status.transcription_outcome = Some("completed".to_string());
             status.transcription_reason = None;
             status.transcript_word_count = Some(word_count);
@@ -480,12 +481,13 @@ async fn show_status(output_root: &std::path::Path) -> Result<(), Box<dyn std::e
         println!("No artifacts found in {}", output_root.display());
         return Ok(());
     }
-    println!("{:<15} {:<12} {:<12} {}", "VIDEO_ID", "DOWNLOADED", "OUTCOME", "REASON");
-    println!("{}", "-".repeat(70));
+    println!("{:<15} {:<12} {:<12} {:<8} {}", "VIDEO_ID", "DOWNLOADED", "OUTCOME", "READY", "REASON");
+    println!("{}", "-".repeat(80));
     for (video_id, status) in &items {
         match status {
             Some(s) => {
                 let outcome = s.transcription_outcome.as_deref().unwrap_or("-");
+                let ready = if s.ready_for_notes { "yes" } else { "-" };
                 let reason = s
                     .transcription_reason
                     .as_deref()
@@ -497,11 +499,11 @@ async fn show_status(output_root: &std::path::Path) -> Result<(), Box<dyn std::e
                     reason
                 };
                 println!(
-                    "{:<15} {:<12} {:<12} {}",
-                    video_id, s.downloaded, outcome, truncated
+                    "{:<15} {:<12} {:<12} {:<8} {}",
+                    video_id, s.downloaded, outcome, ready, truncated
                 );
             }
-            None => println!("{:<15} {:<12} {:<12} {}", video_id, "(no status)", "-", "-"),
+            None => println!("{:<15} {:<12} {:<12} {:<8} {}", video_id, "(no status)", "-", "-", "-"),
         }
     }
     println!("\n{} artifact(s) total", items.len());
