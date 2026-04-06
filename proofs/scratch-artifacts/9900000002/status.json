@@ -6,6 +6,9 @@
   "transcript_file": null,
   "downloaded": true,
   "transcribed": false,
-  "last_error": null,
-  "updated_at_epoch_s": 1775445987
+  "last_error": "hear exited with status exit status: 1: File format not supported.\n",
+  "updated_at_epoch_s": 1775446090,
+  "transcription_outcome": "failed",
+  "transcription_reason": "hear exited with status exit status: 1: File format not supported.\n",
+  "ready_for_notes": false
 }
