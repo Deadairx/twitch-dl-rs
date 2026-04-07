@@ -648,4 +648,87 @@ mod tests {
         assert!(ids.contains(&"111"));
         assert!(ids.contains(&"222"));
     }
+
+    #[test]
+    fn test_download_all_no_channel_filter() {
+        let dir = tempdir().unwrap();
+        let queue_dir = dir.path().join("queues");
+        fs::create_dir_all(&queue_dir).unwrap();
+
+        // Setup: Two queue files with 3 total entries
+        // chan1.json: ID "111" (1 entry)
+        let queue_json_1 = r#"{"schema_version":1,"channel":"chan1","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":1,"queued":[{"channel":"chan1","title":"VOD A","url":"https://www.twitch.tv/videos/111","video_id":"111","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("chan1.json"), queue_json_1).unwrap();
+
+        // chan2.json: IDs "222" and "333" (2 entries)
+        let queue_json_2 = r#"{"schema_version":1,"channel":"chan2","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":2,"queued":[{"channel":"chan2","title":"VOD B","url":"https://www.twitch.tv/videos/222","video_id":"222","uploaded_at":"2026-01-02T00:00:00Z","duration":"PT3600S"},{"channel":"chan2","title":"VOD C","url":"https://www.twitch.tv/videos/333","video_id":"333","uploaded_at":"2026-01-03T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("chan2.json"), queue_json_2).unwrap();
+
+        // Setup: One artifact dir with downloaded=true for ID "222"
+        let artifact_222 = dir.path().join("222");
+        fs::create_dir_all(&artifact_222).unwrap();
+        let status_json = r#"{"schema_version":1,"video_id":"222","source_url":"https://www.twitch.tv/videos/222","media_file":"audio.m4a","transcript_file":null,"downloaded":true,"transcribed":false,"last_error":null,"updated_at_epoch_s":0}"#;
+        fs::write(artifact_222.join("status.json"), status_json).unwrap();
+
+        // Execute: Simulate no-channel download-all filter logic
+        let all_vods = scan_queue_files(dir.path()).unwrap();
+        // All 3 queue entries should be present: 111 (from chan1), 222, 333 (from chan2)
+        assert_eq!(all_vods.len(), 3);
+
+        // Only 222 has a status.json with downloaded=true (created above)
+        let artifact_statuses = scan_artifact_statuses(dir.path()).unwrap();
+        let downloaded_ids: std::collections::HashSet<String> = artifact_statuses
+            .iter()
+            .filter_map(|(video_id, status_opt)| {
+                status_opt.as_ref()
+                    .filter(|s| s.downloaded)
+                    .map(|_| video_id.clone())
+            })
+            .collect();
+
+        let pending: Vec<_> = all_vods
+            .into_iter()
+            .filter(|vod| !downloaded_ids.contains(&vod.video_id))
+            .collect();
+
+        // Assert: Pending should have 2 entries (111, 333) — excluding 222 which has downloaded=true
+        assert_eq!(pending.len(), 2);
+        let pending_ids: Vec<_> = pending.iter().map(|v| v.video_id.as_str()).collect();
+        assert!(pending_ids.contains(&"111"));
+        assert!(pending_ids.contains(&"333"));
+        assert!(!pending_ids.contains(&"222"));
+    }
+
+    #[test]
+    fn test_download_all_channel_regression() {
+        let dir = tempdir().unwrap();
+        let queue_dir = dir.path().join("queues");
+        fs::create_dir_all(&queue_dir).unwrap();
+
+        // Setup: One queue file (chan1) with 2 entries: IDs "111" and "222"
+        let queue_json = r#"{"schema_version":1,"channel":"chan1","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":2,"queued":[{"channel":"chan1","title":"VOD 1","url":"https://www.twitch.tv/videos/111","video_id":"111","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"},{"channel":"chan1","title":"VOD 2","url":"https://www.twitch.tv/videos/222","video_id":"222","uploaded_at":"2026-01-02T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("chan1.json"), queue_json).unwrap();
+
+        // Setup: One artifact dir with downloaded=true for ID "111"
+        let artifact_111 = dir.path().join("111");
+        fs::create_dir_all(&artifact_111).unwrap();
+        let status_json = r#"{"schema_version":1,"video_id":"111","source_url":"https://www.twitch.tv/videos/111","media_file":"audio.m4a","transcript_file":null,"downloaded":true,"transcribed":false,"last_error":null,"updated_at_epoch_s":0}"#;
+        fs::write(artifact_111.join("status.json"), status_json).unwrap();
+
+        // Execute: Simulate single-channel download-all filter logic (from read_queue_file)
+        let queue_file = read_queue_file(dir.path(), "chan1").unwrap();
+        let pending: Vec<_> = queue_file
+            .queued
+            .into_iter()
+            .filter(|vod| {
+                let artifact_dir = dir.path().join(&vod.video_id);
+                let status = read_status(&artifact_dir).unwrap_or(None);
+                !status.map(|s| s.downloaded).unwrap_or(false)
+            })
+            .collect();
+
+        // Assert: Pending should have 1 entry (222) — excluding 111 which has downloaded=true
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].video_id, "222");
+    }
 }

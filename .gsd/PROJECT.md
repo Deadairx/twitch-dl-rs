@@ -16,7 +16,7 @@ M001 complete. The full intake-to-transcript pipeline works:
 - `hear`-backed transcription with `completed` / `suspect` / `failed` outcomes
 - `ready_for_notes` as the handoff point to downstream notes work
 
-M002-z48awz (workflow polish) is active. S01 (Metadata Durability) and S02 (Status Legibility) are complete.
+M002-z48awz (workflow polish) is active. S01 (Metadata Durability), S02 (Status Legibility), and S03 (Intake Flexibility) are complete.
 
 **S01 delivered:**
 - `ArtifactMetadata` extended with `title`, `channel`, `uploaded_at` (all `Option<String>`, backward-compatible)
@@ -34,7 +34,16 @@ M002-z48awz (workflow polish) is active. S01 (Metadata Durability) and S02 (Stat
 - Graceful degradation: missing metadata.json fields render as em dash (—), no panics
 - 21 tests pass (0 failed); build clean
 
-Next slice: S03 (Intake Flexibility) — `queue-video <url>` command and `download-all` without channel argument.
+**S03 delivered:**
+- `queue-video <url>` command for single-VOD intake by Twitch URL
+- URL validation + channel inference via `fetch_vod_metadata_by_id` GQL
+- Idempotent deduplication: running twice with same URL prints "Already queued: {id}" and exits 0
+- Optional `[channel]` argument on `download-all` — omitting it walks all `queues/*.json` and processes all pending
+- No-channel path uses artifact-state-based filtering (HashSet of downloaded IDs) for O(1) dedup
+- Single-channel path preserved unchanged (no regressions)
+- 24 tests pass (21 existing + 3 new); build clean
+
+Next slice: S04 (Selective Processing) — `download-all --video-id` filtering.
 
 ## Architecture / Key Patterns
 
@@ -57,7 +66,7 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 - [ ] M002-z48awz: Workflow Polish — status legibility, metadata durability, intake flexibility, selective processing, queue-aware views, retry hardening, additional source support
   - [x] S01: Metadata Durability — ArtifactMetadata schema extended, GQL fetch wired, --skip-metadata flag, status.json normalized for bare downloads
   - [x] S02: Status Legibility — 6-column human-readable status table, merged queue+artifact view, STAGE derivation, deduplication, graceful degradation
-  - [ ] S03: Intake Flexibility — queue-video command + download-all without channel arg
+  - [x] S03: Intake Flexibility — queue-video command + download-all without channel arg (idempotent dedup, artifact-state filtering); 24/24 tests pass
   - [ ] S04: Selective Processing — download-all --video-id filter
   - [ ] S05: Queue-Aware Filtering — status --filter flag
   - [ ] S06: Retry And Operational Hardening — transcribe-all --force-suspect

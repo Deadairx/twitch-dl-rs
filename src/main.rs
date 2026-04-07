@@ -80,9 +80,10 @@ async fn main() {
             output_root,
             quality,
             continue_on_error,
+            video_id,
         } => {
             if let Err(error) =
-                download_all(&channel, &output_root, quality, continue_on_error).await
+                download_all(channel.as_deref(), &output_root, quality, continue_on_error, video_id.as_deref()).await
             {
                 eprintln!("Download-all failed: {error}");
                 std::process::exit(1);
@@ -91,8 +92,9 @@ async fn main() {
         cli::CliCommand::TranscribeAll {
             output_root,
             continue_on_error,
+            video_id,
         } => {
-            if let Err(error) = transcribe_all(&output_root, continue_on_error).await {
+            if let Err(error) = transcribe_all(&output_root, continue_on_error, video_id.as_deref()).await {
                 eprintln!("Transcribe-all failed: {error}");
                 std::process::exit(1);
             }
@@ -489,59 +491,129 @@ async fn process_vod(
 }
 
 async fn download_all(
-    channel: &str,
+    channel: Option<&str>,
     output_root: &std::path::Path,
     quality: cli::QualityPreference,
     continue_on_error: bool,
+    video_id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let queue_file = artifact::read_queue_file(output_root, channel)?;
-    let pending: Vec<_> = queue_file
-        .queued
-        .into_iter()
-        .filter(|vod| {
-            let artifact_dir = output_root.join(&vod.video_id);
-            let status = artifact::read_status(&artifact_dir).unwrap_or(None);
-            !status.map(|s| s.downloaded).unwrap_or(false)
-        })
-        .collect();
+    match channel {
+        Some(ch) => {
+            // Existing single-channel path
+            let queue_file = artifact::read_queue_file(output_root, ch)?;
+            let pending: Vec<_> = queue_file
+                .queued
+                .into_iter()
+                .filter(|vod| {
+                    // Filter by video_id if provided
+                    if let Some(vid) = video_id {
+                        if vod.video_id != vid {
+                            return false;
+                        }
+                    }
+                    let artifact_dir = output_root.join(&vod.video_id);
+                    let status = artifact::read_status(&artifact_dir).unwrap_or(None);
+                    !status.map(|s| s.downloaded).unwrap_or(false)
+                })
+                .collect();
 
-    if pending.is_empty() {
-        println!("All queued VODs already downloaded.");
-        return Ok(());
-    }
-    println!("Downloading {} pending VOD(s) for {channel}...", pending.len());
-    for vod in pending {
-        let artifact_dir = output_root.join(&vod.video_id);
-        artifact::prepare_artifact_dir(&artifact_dir)?;
-        let mut status = artifact::read_status(&artifact_dir)?
-            .unwrap_or_else(|| artifact::ProcessStatus::new(&vod.video_id, &vod.url));
-        match download_vod_to_artifact(&vod, output_root, quality, &mut status).await {
-            Ok(_) => println!("Downloaded {}", vod.video_id),
-            Err(e) => {
-                eprintln!("Failed {}: {e}", vod.video_id);
-                if !continue_on_error {
-                    return Err(e);
+            if pending.is_empty() {
+                println!("All queued VODs already downloaded.");
+                return Ok(());
+            }
+            println!("Downloading {} pending VOD(s) for {ch}...", pending.len());
+            for vod in pending {
+                let artifact_dir = output_root.join(&vod.video_id);
+                artifact::prepare_artifact_dir(&artifact_dir)?;
+                let mut status = artifact::read_status(&artifact_dir)?
+                    .unwrap_or_else(|| artifact::ProcessStatus::new(&vod.video_id, &vod.url));
+                match download_vod_to_artifact(&vod, output_root, quality, &mut status).await {
+                    Ok(_) => println!("Downloaded {}", vod.video_id),
+                    Err(e) => {
+                        eprintln!("Failed {}: {e}", vod.video_id);
+                        if !continue_on_error {
+                            return Err(e);
+                        }
+                    }
                 }
             }
+            Ok(())
+        }
+        None => {
+            // New no-channel path: walk all queues and download pending items
+            let all_vods = artifact::scan_queue_files(output_root)?;
+            let artifact_statuses = artifact::scan_artifact_statuses(output_root)?;
+            
+            // Build HashSet of downloaded video IDs for O(1) lookup
+            let downloaded_ids: std::collections::HashSet<String> = artifact_statuses
+                .iter()
+                .filter_map(|(video_id, status_opt)| {
+                    status_opt.as_ref()
+                        .filter(|s| s.downloaded)
+                        .map(|_| video_id.clone())
+                })
+                .collect();
+            
+            // Filter to pending (not downloaded) and optionally by video_id
+            let pending: Vec<_> = all_vods
+                .into_iter()
+                .filter(|vod| {
+                    // Filter by video_id if provided
+                    if let Some(vid) = video_id {
+                        if vod.video_id != vid {
+                            return false;
+                        }
+                    }
+                    !downloaded_ids.contains(&vod.video_id)
+                })
+                .collect();
+
+            if pending.is_empty() {
+                println!("All queued VODs already downloaded.");
+                return Ok(());
+            }
+            println!("Downloading {} pending VOD(s) across all channels...", pending.len());
+            for vod in pending {
+                let artifact_dir = output_root.join(&vod.video_id);
+                artifact::prepare_artifact_dir(&artifact_dir)?;
+                let mut status = artifact::read_status(&artifact_dir)?
+                    .unwrap_or_else(|| artifact::ProcessStatus::new(&vod.video_id, &vod.url));
+                match download_vod_to_artifact(&vod, output_root, quality, &mut status).await {
+                    Ok(_) => println!("Downloaded {}", vod.video_id),
+                    Err(e) => {
+                        eprintln!("Failed {}: {e}", vod.video_id);
+                        if !continue_on_error {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+            Ok(())
         }
     }
-    Ok(())
 }
 
 async fn transcribe_all(
     output_root: &std::path::Path,
     continue_on_error: bool,
+    video_id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let items = artifact::scan_artifact_statuses(output_root)?;
     let pending: Vec<_> = items
         .into_iter()
-        .filter_map(|(video_id, status)| {
+        .filter_map(|(vid, status)| {
+            // Filter by video_id if provided
+            if let Some(filter_vid) = video_id {
+                if vid != filter_vid {
+                    return None;
+                }
+            }
             let s = status?;
             if s.downloaded
                 && !s.transcribed
                 && s.transcription_outcome.as_deref() != Some("suspect")
             {
-                Some((video_id, s))
+                Some((vid, s))
             } else {
                 None
             }

@@ -68,4 +68,9 @@ Append-only. Never edit or remove existing entries. Add a new entry to supersede
 **Pattern:** `metadata.as_ref().and_then(|m| m.title.as_deref()).unwrap_or("—").to_string()` — chains safely through nullable intermediate values, defaults to a meaningful fallback.
 **Lesson:** For any display-layer code reading durable artifacts, defaulting missing fields to a visual placeholder (em dash, "N/A", "unknown") is always preferable to panicking. Operator can immediately see incomplete data and decide whether to investigate or proceed. Prevents a single missing field from blocking visibility of the entire artifact.
 
+### Ground-truth filtering via artifact status, not queue-file state
+**Context:** S03's no-channel `download-all` path needed to deduplicate VODs across multiple queue files. The choice was whether to track completion state in queue files themselves or derive it from existing artifacts.
+**Lesson:** When filtering items from source lists (queues) against completion state, build the truth set from durable artifacts (status.json files), not from metadata embedded in the source files. Artifacts are the single source of truth for what has been processed. Queue files are immutable input snapshots. Filtering by artifact status keeps the model simple, avoids dual-source-of-truth bugs, and makes state transparent (operator can inspect `artifacts/*/status.json` directly). This pattern scales to multi-queue scenarios and to future filtering needs (S05's queue-aware status display uses the same approach).
+**Pattern:** `let downloaded_ids: HashSet<_> = scan_artifact_statuses(output_root).collect_downloaded_ids(); let pending: Vec<_> = all_queued_vods.into_iter().filter(|v| !downloaded_ids.contains(&v.video_id)).collect();`
+
 ---

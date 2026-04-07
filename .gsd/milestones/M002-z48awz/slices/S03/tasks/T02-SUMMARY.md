@@ -1,6 +1,6 @@
 ---
 id: T02
-parent: S02
+parent: S03
 milestone: M002-z48awz
 key_files:
   - (none)
@@ -12,7 +12,7 @@ completed_at:
 blocker_discovered: false
 ---
 
-# T02: Rewrite show_status in main.rs with 6-column layout and STAGE derivation
+# T02: Make `download-all` channel optional and add no-channel walk path
 
 ****
 

@@ -1,24 +1,12 @@
-# S04: Selective Processing
+---
+estimated_steps: 37
+estimated_files: 2
+skills_used: []
+---
 
-**Goal:** Add `--video-id <id>` filtering to `download-all` and `transcribe-all` so the operator can target a single item without processing the entire queue.
-**Demo:** After this: After this: run download-all --video-id 123456789 and watch only that one item download while others are skipped.
+# T02: Extend download_all and transcribe_all handlers with video_id filter and not-found error; add 4 unit tests
 
-## Tasks
-- [x] **T01: Added --video-id optional argument to download-all and transcribe-all subcommands with filtering logic** — Add `video_id: Option<String>` to `CliCommand::DownloadAll` and `CliCommand::TranscribeAll` in `src/cli.rs`, register the `--video-id` arg on both subcommands, and populate the field in the two `parse_args()` match arms. This is purely additive — no handler logic changes yet.
-
-## Steps
-
-1. Open `src/cli.rs`. Locate the `DownloadAll` variant (line ~42). Add `video_id: Option<String>` field after `continue_on_error`.
-2. Locate the `TranscribeAll` variant (line ~48). Add `video_id: Option<String>` field after `continue_on_error`.
-3. Locate the `Command::new("download-all")` block (line ~224). Copy the `Arg::new("video-id")` registration from the `cleanup` subcommand (line ~281) and add it to the download-all args. Update the help text to: `"Process only the VOD with this video ID"`.
-4. Locate the `Command::new("transcribe-all")` block (~line 250). Add the same `Arg::new("video-id")` arg with help text: `"Transcribe only the artifact with this video ID"`.
-5. Locate the `Some(("download-all", download_all_matches))` match arm (line ~378). Add `video_id: download_all_matches.get_one::<String>("video-id").cloned()` to the `CliCommand::DownloadAll { ... }` struct literal.
-6. Locate the `Some(("transcribe-all", transcribe_all_matches))` match arm (line ~396). Add `video_id: transcribe_all_matches.get_one::<String>("video-id").cloned()` to the struct literal.
-7. Run `cargo build` to confirm no errors.
-  - Estimate: 20m
-  - Files: src/cli.rs
-  - Verify: cargo build && ./target/debug/vod-pipeline download-all --help | grep -q 'video-id' && ./target/debug/vod-pipeline transcribe-all --help | grep -q 'video-id'
-- [ ] **T02: Extend download_all and transcribe_all handlers with video_id filter and not-found error; add 4 unit tests** — Update `src/main.rs` to: (1) add `video_id: Option<&str>` parameter to `download_all` and `transcribe_all`, (2) apply a post-filter on `pending` in both functions, (3) return a clear error when the ID is not found, (4) update the dispatch block to pass `.as_deref()` for both commands. Add 4 unit tests in `src/artifact.rs` proving filter and not-found behavior.
+Update `src/main.rs` to: (1) add `video_id: Option<&str>` parameter to `download_all` and `transcribe_all`, (2) apply a post-filter on `pending` in both functions, (3) return a clear error when the ID is not found, (4) update the dispatch block to pass `.as_deref()` for both commands. Add 4 unit tests in `src/artifact.rs` proving filter and not-found behavior.
 
 ## Steps
 
@@ -69,6 +57,18 @@ let pending = if let Some(id) = video_id {
 Note: The unit tests test the filter *logic* (building the vec and filtering it), not the full async handler. This is the same pattern used in S03 tests — test the data transformation, not the I/O dispatch. The not-found check is `filtered.is_empty()` — tests that return empty vectors prove the not-found path would trigger.
 
 8. Run `cargo test` and confirm 28/28 pass.
-  - Estimate: 35m
-  - Files: src/main.rs, src/artifact.rs
-  - Verify: cargo test 2>&1 | grep -E 'test result|passed' | tail -3
+
+## Inputs
+
+- `src/cli.rs`
+- `src/main.rs`
+- `src/artifact.rs`
+
+## Expected Output
+
+- `src/main.rs`
+- `src/artifact.rs`
+
+## Verification
+
+cargo test 2>&1 | grep -E 'test result|passed' | tail -3

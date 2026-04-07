@@ -40,14 +40,16 @@ pub enum CliCommand {
         output_root: PathBuf,
     },
     DownloadAll {
-        channel: String,
+        channel: Option<String>,
         output_root: PathBuf,
         quality: QualityPreference,
         continue_on_error: bool,
+        video_id: Option<String>,
     },
     TranscribeAll {
         output_root: PathBuf,
         continue_on_error: bool,
+        video_id: Option<String>,
     },
     Cleanup {
         output_root: PathBuf,
@@ -222,11 +224,11 @@ pub fn parse_args() -> Cli {
         )
         .subcommand(
             Command::new("download-all")
-                .about("Download all pending queued VODs for a channel")
+                .about("Download all pending queued VODs for a channel or all queues if channel not specified")
                 .arg(
                     Arg::new("channel")
-                        .help("Twitch channel login name")
-                        .required(true)
+                        .help("Twitch channel login name (optional; downloads all queues if omitted)")
+                        .required(false)
                         .index(1),
                 )
                 .arg(output_root_arg(
@@ -244,6 +246,12 @@ pub fn parse_args() -> Cli {
                         .long("continue-on-error")
                         .help("Continue downloading other VODs if one fails")
                         .action(ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("video-id")
+                        .long("video-id")
+                        .help("Process only the VOD with this video ID")
+                        .value_name("VIDEO_ID"),
                 ),
         )
         .subcommand(
@@ -257,6 +265,12 @@ pub fn parse_args() -> Cli {
                         .long("continue-on-error")
                         .help("Continue transcribing other artifacts if one fails")
                         .action(ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("video-id")
+                        .long("video-id")
+                        .help("Transcribe only the artifact with this video ID")
+                        .value_name("VIDEO_ID"),
                 ),
         )
         .subcommand(
@@ -379,8 +393,7 @@ pub fn parse_args() -> Cli {
             command: CliCommand::DownloadAll {
                 channel: download_all_matches
                     .get_one::<String>("channel")
-                    .expect("channel is required by clap")
-                    .clone(),
+                    .cloned(),
                 output_root: PathBuf::from(
                     download_all_matches
                         .get_one::<String>("output-root")
@@ -392,6 +405,7 @@ pub fn parse_args() -> Cli {
                         .expect("quality has a default value"),
                 ),
                 continue_on_error: download_all_matches.get_flag("continue-on-error"),
+                video_id: download_all_matches.get_one::<String>("video-id").cloned(),
             },
         },
         Some(("transcribe-all", transcribe_all_matches)) => Cli {
@@ -402,6 +416,7 @@ pub fn parse_args() -> Cli {
                         .expect("output-root has a default value"),
                 ),
                 continue_on_error: transcribe_all_matches.get_flag("continue-on-error"),
+                video_id: transcribe_all_matches.get_one::<String>("video-id").cloned(),
             },
         },
         Some(("cleanup", cleanup_matches)) => {
