@@ -38,6 +38,7 @@ pub enum CliCommand {
     },
     Status {
         output_root: PathBuf,
+        filter: Option<String>,
     },
     DownloadAll {
         channel: Option<String>,
@@ -50,6 +51,7 @@ pub enum CliCommand {
         output_root: PathBuf,
         continue_on_error: bool,
         video_id: Option<String>,
+        force_suspect: bool,
     },
     Cleanup {
         output_root: PathBuf,
@@ -220,7 +222,14 @@ pub fn parse_args() -> Cli {
                 .about("Show status of all downloaded/transcribed artifacts")
                 .arg(output_root_arg(
                     "Directory where artifact folders are stored (default: VOD_PIPELINE_OUTPUT_ROOT or artifacts)",
-                )),
+                ))
+                .arg(
+                    Arg::new("filter")
+                        .long("filter")
+                        .value_name("STAGE")
+                        .help("Show only items in the given stage: queued, downloaded, suspect, failed, ready")
+                        .required(false),
+                ),
         )
         .subcommand(
             Command::new("download-all")
@@ -271,6 +280,12 @@ pub fn parse_args() -> Cli {
                         .long("video-id")
                         .help("Transcribe only the artifact with this video ID")
                         .value_name("VIDEO_ID"),
+                )
+                .arg(
+                    Arg::new("force-suspect")
+                        .long("force-suspect")
+                        .help("Re-transcribe artifacts that previously resulted in suspect transcriptions")
+                        .action(ArgAction::SetTrue),
                 ),
         )
         .subcommand(
@@ -387,6 +402,7 @@ pub fn parse_args() -> Cli {
                         .get_one::<String>("output-root")
                         .expect("output-root has a default value"),
                 ),
+                filter: status_matches.get_one::<String>("filter").cloned(),
             },
         },
         Some(("download-all", download_all_matches)) => Cli {
@@ -417,6 +433,7 @@ pub fn parse_args() -> Cli {
                 ),
                 continue_on_error: transcribe_all_matches.get_flag("continue-on-error"),
                 video_id: transcribe_all_matches.get_one::<String>("video-id").cloned(),
+                force_suspect: transcribe_all_matches.get_flag("force-suspect"),
             },
         },
         Some(("cleanup", cleanup_matches)) => {

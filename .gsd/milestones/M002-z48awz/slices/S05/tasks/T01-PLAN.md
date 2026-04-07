@@ -1,10 +1,12 @@
-# S05: Queue-Aware Filtering
+---
+estimated_steps: 76
+estimated_files: 4
+skills_used: []
+---
 
-**Goal:** Add `--filter <stage>` to the `status` subcommand so operators can narrow the display to items in a specific pipeline stage (queued, downloaded, suspect, failed, ready).
-**Demo:** After this: After this: run status --filter failed and see only failed items; run status --filter queued and see only items waiting to download.
+# T01: Add --filter flag to status command and apply in show_status
 
-## Tasks
-- [x] **T01: Wired --filter &lt;stage&gt; end-to-end in status subcommand with validation, filtering, not-found messaging, and 3 unit tests** — Wire `--filter <stage>` end-to-end: add the field to the CLI struct, register the arg, thread it through dispatch, apply it in show_status, handle the two edge cases, and add unit tests.
+Wire `--filter <stage>` end-to-end: add the field to the CLI struct, register the arg, thread it through dispatch, apply it in show_status, handle the two edge cases, and add unit tests.
 
 ## Steps
 
@@ -90,6 +92,20 @@
    Since VALID_STAGES is defined inside show_status, expose it as a `pub const` at module level in main.rs (or define a helper the tests can call). The simplest approach: define `pub const VALID_FILTER_STAGES: &[&str]` in `src/lib.rs` or at the top of `src/main.rs`, then reference it in show_status and in tests.
    
    Alternatively, write the tests as compile checks against a function: add a `pub fn is_valid_filter_stage(s: &str) -> bool` in `src/main.rs` (accessible via lib.rs) and test that function directly. This is cleanest.
-  - Estimate: 45m
-  - Files: src/cli.rs, src/main.rs, src/artifact.rs, src/lib.rs
-  - Verify: cargo test 2>&1 | grep -E 'test result|FAILED' && cargo build --quiet 2>&1 && ./target/debug/vod-pipeline status --filter typo 2>&1 | grep -q 'unknown filter' && echo 'VERIFY OK'
+
+## Inputs
+
+- ``src/cli.rs` — Status variant definition and status subcommand arg registration (lines ~39, ~219, ~383)`
+- ``src/main.rs` — dispatch block (line ~72), show_status signature and body (lines ~850–955)`
+- ``src/artifact.rs` — existing unit tests for pattern reference (lines ~500+)`
+- ``src/lib.rs` — module re-exports for test visibility`
+
+## Expected Output
+
+- ``src/cli.rs` — Status variant with filter field; status subcommand with --filter arg; parse arm populating filter`
+- ``src/main.rs` — show_status with filter parameter; VALID_FILTER_STAGES const or is_valid_filter_stage helper; filter validation, application, and not-found message`
+- ``src/artifact.rs` — 3 new unit tests for filter validation logic`
+
+## Verification
+
+cargo test 2>&1 | grep -E 'test result|FAILED' && cargo build --quiet 2>&1 && ./target/debug/vod-pipeline status --filter typo 2>&1 | grep -q 'unknown filter' && echo 'VERIFY OK'

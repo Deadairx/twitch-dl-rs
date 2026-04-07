@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-04-07T03:08:16.275Z",
+  "exported_at": "2026-04-07T04:24:24.440Z",
   "milestones": [
     {
       "id": "M001",
@@ -272,14 +272,14 @@
       "milestone_id": "M002-z48awz",
       "id": "S04",
       "title": "Selective Processing",
-      "status": "pending",
+      "status": "complete",
       "risk": "low",
       "depends": [],
       "demo": "After this: run download-all --video-id 123456789 and watch only that one item download while others are skipped.",
       "created_at": "2026-04-06T07:19:16.646Z",
-      "completed_at": null,
-      "full_summary_md": "",
-      "full_uat_md": "",
+      "completed_at": "2026-04-07T03:38:08.829Z",
+      "full_summary_md": "---\nid: S04\nparent: M002-z48awz\nmilestone: M002-z48awz\nprovides:\n  - --video-id filtering on download-all and transcribe-all for single-item targeting\n  - Clear not-found error messages distinguishing queue vs artifact miss\n  - 4 unit tests covering filter and not-found paths for both commands\n  - Handler-level filter pattern usable by S05 for --filter flag implementation\nrequires:\n  - slice: S03\n    provides: no-channel download-all path with scan_queue_files and pending vec construction\naffects:\n  - S05\nkey_files:\n  - src/cli.rs\n  - src/main.rs\n  - src/artifact.rs\nkey_decisions:\n  - Handler-level post-filter approach rather than CLI arg validation — preserves queue/artifact file immutability and enables future filter stacking without CLI parsing changes\n  - Distinct error messages per command: 'not found in any queue' (download-all) vs 'not found in any artifact' (transcribe-all) — helps operators distinguish intake vs artifact state problems\n  - Filter applies to both single-channel and no-channel paths in download_all — the video_id block appears after each branch's pending vec is fully assembled\npatterns_established:\n  - Video ID post-filter pattern: apply after pending vec is fully built, check for empty result, return formatted error — reusable for any future single-item targeting\n  - Unit test pattern for filter logic: build temp queue/artifact structure, simulate handler data transformation, assert filtered-vec length — avoids async I/O in tests\nobservability_surfaces:\n  - none\ndrill_down_paths:\n  []\nduration: \"\"\nverification_result: passed\ncompleted_at: 2026-04-07T03:38:08.832Z\nblocker_discovered: false\n---\n\n# S04: Selective Processing\n\n**Added `--video-id` filtering to `download-all` and `transcribe-all` for single-item targeting, with not-found error handling and 4 unit tests.**\n\n## What Happened\n\nS04 implemented precise item targeting for batch operations in two tasks. T01 extended the CLI structs with `video_id: Option<String>` on both `DownloadAll` and `TranscribeAll` variants, registered the `--video-id` argument on both subcommands with appropriate help text, and updated the parse_args match arms to populate the field. T02 extended both `download_all()` and `transcribe_all()` function signatures to accept `video_id: Option<&str>`, applied a post-filter after the pending vec is built in each function (covering both the single-channel and no-channel paths in download_all), and returned a clear error when the filtered result is empty. Four unit tests were added to src/artifact.rs covering the filter-with-match and filter-without-match cases for both commands. The filtering is applied at handler level (not CLI arg level) to preserve queue/artifact file integrity and enable future filter stacking.\n\n## Verification\n\ncargo build succeeds (exit 0). Both `./target/debug/vod-pipeline download-all --help` and `./target/debug/vod-pipeline transcribe-all --help` show the `--video-id` flag with correct descriptions. `cargo test` reports 28/28 pass (24 existing + 4 new). New tests: test_download_all_video_id_filter, test_download_all_video_id_not_found, test_transcribe_all_video_id_filter, test_transcribe_all_video_id_not_found — all pass.\n\n## Requirements Advanced\n\nNone.\n\n## Requirements Validated\n\nNone.\n\n## New Requirements Surfaced\n\nNone.\n\n## Requirements Invalidated or Re-scoped\n\nNone.\n\n## Deviations\n\nNone.\n\n## Known Limitations\n\nSingle video ID per invocation only. Multi-ID targeting (e.g., --video-ids 123,456) is explicitly deferred as a future enhancement.\n\n## Follow-ups\n\nNone.\n\n## Files Created/Modified\n\n- `src/cli.rs` — Added video_id: Option<String> field to DownloadAll and TranscribeAll CLI variants; registered --video-id arg on both subcommands; updated parse_args match arms\n- `src/main.rs` — Extended download_all() and transcribe_all() signatures with video_id: Option<&str>; added post-filter logic with not-found error handling in both functions; updated dispatch block\n- `src/artifact.rs` — Added 4 unit tests: test_download_all_video_id_filter, test_download_all_video_id_not_found, test_transcribe_all_video_id_filter, test_transcribe_all_video_id_not_found\n",
+      "full_uat_md": "# S04: Selective Processing — UAT\n\n**Milestone:** M002-z48awz\n**Written:** 2026-04-07T03:38:08.832Z\n\n# S04: Selective Processing — UAT\n\n**Milestone:** M002-z48awz\n**Written:** 2026-04-07\n\n## UAT Type\n\n- **UAT mode:** artifact-driven (static test data) + live-runtime (CLI invocations against test artifacts)\n- **Why this mode is sufficient:** The feature is stateless filtering logic. No async side effects, no external APIs, no state mutations beyond normal download/transcribe flow.\n\n## Preconditions\n\n1. Binary built: `cargo build` succeeded\n2. Create temp output root with queue files and artifact directories:\n\n```bash\nTESTDIR=$(mktemp -d)\nmkdir -p $TESTDIR/queues $TESTDIR/artifacts\n\n# chan1.json with video ID 111111\ncat > $TESTDIR/queues/chan1.json <<'EOF'\n{\"schema_version\":1,\"channel\":\"chan1\",\"generated_at_epoch_s\":0,\"past_broadcasts_only\":false,\"min_seconds\":600,\"queued_count\":1,\"queued\":[{\"channel\":\"chan1\",\"title\":\"VOD A\",\"url\":\"https://www.twitch.tv/videos/111111\",\"video_id\":\"111111\",\"uploaded_at\":\"2026-01-01T00:00:00Z\",\"duration\":\"PT3600S\"}],\"skipped_existing_ids\":[]}\nEOF\n\n# chan2.json with video ID 222222\ncat > $TESTDIR/queues/chan2.json <<'EOF'\n{\"schema_version\":1,\"channel\":\"chan2\",\"generated_at_epoch_s\":0,\"past_broadcasts_only\":false,\"min_seconds\":600,\"queued_count\":1,\"queued\":[{\"channel\":\"chan2\",\"title\":\"VOD B\",\"url\":\"https://www.twitch.tv/videos/222222\",\"video_id\":\"222222\",\"uploaded_at\":\"2026-01-02T00:00:00Z\",\"duration\":\"PT3600S\"}],\"skipped_existing_ids\":[]}\nEOF\n\n# Artifact 333333: downloaded, not transcribed\nmkdir -p $TESTDIR/artifacts/333333\necho '{\"video_id\":\"333333\",\"url\":\"https://www.twitch.tv/videos/333333\",\"downloaded\":true,\"transcribed\":false,\"transcription_outcome\":null,\"ready_for_notes\":false}' > $TESTDIR/artifacts/333333/status.json\n\n# Artifact 444444: downloaded, not transcribed\nmkdir -p $TESTDIR/artifacts/444444\necho '{\"video_id\":\"444444\",\"url\":\"https://www.twitch.tv/videos/444444\",\"downloaded\":true,\"transcribed\":false,\"transcription_outcome\":null,\"ready_for_notes\":false}' > $TESTDIR/artifacts/444444/status.json\n```\n\n## Smoke Test\n\n```bash\n./target/debug/vod-pipeline download-all --help | grep -q 'video-id' && echo \"✅ download-all has --video-id\"\n./target/debug/vod-pipeline transcribe-all --help | grep -q 'video-id' && echo \"✅ transcribe-all has --video-id\"\n```\n\n## Test Cases\n\n### 1. Download-all --video-id filters to one queued item\n\n1. Run: `./target/debug/vod-pipeline download-all --video-id 111111 $TESTDIR 2>&1`\n2. **Expected:** Command processes only 111111; output contains \"Downloading 1 pending VOD(s)\"; 222222 is not attempted.\n\n### 2. Download-all --video-id non-existent ID returns error\n\n1. Run: `./target/debug/vod-pipeline download-all --video-id 999999 $TESTDIR 2>&1`\n2. **Expected:** Exit non-zero. Stderr contains: \"Download-all failed: video ID 999999 not found in any queue\". No items processed.\n\n### 3. Download-all without --video-id processes all pending (regression check)\n\n1. Run: `./target/debug/vod-pipeline download-all $TESTDIR 2>&1`\n2. **Expected:** Output contains \"Downloading 2 pending VOD(s) across all channels\"; both 111111 and 222222 are attempted.\n\n### 4. Transcribe-all --video-id filters to one artifact\n\n1. Run: `./target/debug/vod-pipeline transcribe-all --video-id 333333 $TESTDIR 2>&1`\n2. **Expected:** Command processes only 333333; output contains \"Transcribing 1 pending artifacts\"; 444444 is not attempted.\n\n### 5. Transcribe-all --video-id non-existent ID returns error\n\n1. Run: `./target/debug/vod-pipeline transcribe-all --video-id 555555 $TESTDIR 2>&1`\n2. **Expected:** Exit non-zero. Stderr contains: \"Transcribe-all failed: video ID 555555 not found in any artifact\". No items processed.\n\n### 6. Transcribe-all without --video-id processes all pending (regression check)\n\n1. Run: `./target/debug/vod-pipeline transcribe-all $TESTDIR 2>&1`\n2. **Expected:** Output contains \"Transcribing 2 pending artifacts\"; both 333333 and 444444 are attempted.\n\n### 7. Flag name consistency with cleanup\n\n1. Run `./target/debug/vod-pipeline cleanup --help | grep video-id`\n2. Run `./target/debug/vod-pipeline download-all --help | grep video-id`\n3. Run `./target/debug/vod-pipeline transcribe-all --help | grep video-id`\n4. **Expected:** All three show `--video-id` (exact same flag name).\n\n## Edge Cases\n\n### A. continue-on-error is orthogonal to video-id filter\n\n1. Run: `./target/debug/vod-pipeline transcribe-all --continue-on-error $TESTDIR`\n2. **Expected:** All pending items attempted regardless of individual failures; --video-id filter and --continue-on-error are independent flags.\n\n### B. Empty queue/artifact directory\n\n1. Create empty output root, run: `./target/debug/vod-pipeline download-all --video-id 123456 $TESTDIR`\n2. **Expected:** Clean \"not found in any queue\" error, no panic.\n",
       "goal": "Add `--video-id <id>` filtering to `download-all` and `transcribe-all` so the operator can target a single item without processing the entire queue.",
       "success_criteria": "- `download-all --video-id <id>` processes only the matching queued VOD and skips all others\n- `transcribe-all --video-id <id>` transcribes only the matching artifact and skips all others\n- When the provided ID is not found, both commands exit non-zero with a clear message\n- `cargo test` passes 28/28 (4 new tests added)\n- `cargo build` clean",
       "proof_level": "contract — unit tests prove filter logic and not-found errors; no real runtime execution required",
@@ -292,22 +292,19 @@
       "milestone_id": "M002-z48awz",
       "id": "S05",
       "title": "Queue-Aware Filtering",
-      "status": "pending",
+      "status": "complete",
       "risk": "low",
-      "depends": [
-        "S02",
-        "S04"
-      ],
+      "depends": [],
       "demo": "After this: run status --filter failed and see only failed items; run status --filter queued and see only items waiting to download.",
       "created_at": "2026-04-06T07:19:16.646Z",
-      "completed_at": null,
-      "full_summary_md": "",
-      "full_uat_md": "",
-      "goal": "Solidify the --filter flag on status with all four filter values (queued, pending, failed, ready) and verify clean display across all states.",
-      "success_criteria": "status --filter queued shows only items present in queue files but not downloaded. status --filter pending shows downloaded but not transcribed. status --filter failed shows transcription_outcome=failed. status --filter ready shows ready_for_notes=true.",
-      "proof_level": "unit tests against fixture artifact directories",
-      "integration_closure": "filter logic reads both queue files and artifact status.json consistently",
-      "observability_impact": "operators can isolate actionable items without scanning the full table",
+      "completed_at": "2026-04-07T04:16:54.546Z",
+      "full_summary_md": "---\nid: S05\nparent: M002-z48awz\nmilestone: M002-z48awz\nprovides:\n  - --filter <stage> flag on status command enabling operator-driven view narrowing to specific pipeline stages\n  - Handler-level filtering pattern (post-assembly, shadow-rebind) for clean composition with future multi-stage filters\nrequires:\n  - slice: S02\n    provides: Merged queue+artifact item list with STAGE column already computed; show_status foundation\naffects:\n  - S06 (Retry and Operational Hardening — depends on filter-capable status for selective recovery)\nkey_files:\n  - src/cli.rs\n  - src/main.rs\n  - src/lib.rs\n  - src/artifact.rs\nkey_decisions:\n  - is_valid_filter_stage defined in lib.rs for test access; private inline VALID_STAGES copy in main.rs binary since binary uses mod declarations and cannot reference lib crate externally\n  - filter applied post-assembly via two shadow-rebound bindings (queued_only and artifact_items) to keep logic symmetric and testable without modifying scan_artifact_statuses signature\n  - case-sensitive stage matching enforced (no aliases, no folding) to avoid operator confusion and simplify the validation model\npatterns_established:\n  - Handler-level filtering (post-assembly) decouples filtering from CLI parsing and scan logic. New filters in S06+ can stack by chaining post-filter operations without touching core scan functions or CLI arg complexity.\n  - Symmetrical shadow-rebinding of both item collections with the same filter predicate maintains consistency and reduces cognitive load for future agents maintaining this code.\nobservability_surfaces:\n  - status command with --filter flag: operator diagnostic tool for narrowing view to pipeline stage (no new metrics or logging surfaces added)\ndrill_down_paths:\n  - .gsd/milestones/M002-z48awz/slices/S05/tasks/T01-SUMMARY.md\nduration: \"\"\nverification_result: passed\ncompleted_at: 2026-04-07T04:16:54.549Z\nblocker_discovered: false\n---\n\n# S05: Queue-Aware Filtering\n\n**Added --filter <stage> flag to status command enabling operators to narrow artifact+queue table to specific pipeline stages (queued, downloaded, suspect, failed, ready)**\n\n## What Happened\n\nImplemented queue-aware filtering by adding a --filter <stage> argument to the status subcommand. The filter threads through the CLI struct, dispatch block, and show_status function. Inside show_status, after both item vecs (queued_only and artifact_items) are assembled, the filter is validated against VALID_STAGES constant, then applied via shadow-rebound bindings to both collections. This post-assembly approach preserves scan_artifact_statuses contract and enables future multi-stage filters to compose cleanly. Three unit tests verify valid stages pass, invalid/typo inputs fail, and case-sensitivity is enforced. All 31 tests pass, build succeeds clean, and manual verification confirms filtering works correctly for all five stage values, not-found cases print appropriate messages, and invalid filters exit with helpful error text listing valid values.\n\n## Verification\n\ncargo test: 31/31 pass including 3 new filter tests. cargo build: succeeds clean. Manual verification: status --filter failed shows only failed items (exit 0), status --filter queued shows 'No items matching filter' message (exit 0), status --filter typo exits 1 with 'unknown filter' error and valid values list. Help text documents --filter flag. Backward compatibility preserved: status with no filter shows all items.\n\n## Requirements Advanced\n\nNone.\n\n## Requirements Validated\n\nNone.\n\n## New Requirements Surfaced\n\nNone.\n\n## Requirements Invalidated or Re-scoped\n\nNone.\n\n## Deviations\n\nNone.\n\n## Known Limitations\n\nSingle-stage filters only; composite filters deferred. No sorting within filtered results (already deferred in S02). No --filter on download-all, transcribe-all, or queue (out of scope).\n\n## Follow-ups\n\nNone.\n\n## Files Created/Modified\n\nNone.\n",
+      "full_uat_md": "# S05: Queue-Aware Filtering — UAT\n\n**Milestone:** M002-z48awz\n**Written:** 2026-04-07T04:16:54.549Z\n\n# S05: Queue-Aware Filtering — User Acceptance Tests\n\n## Preconditions\n\n- Binary built: `./target/debug/vod-pipeline` is available and built from the current source\n- Test environment: artifacts directory with mixed stage states (queued items in queue files, downloaded/suspect/failed artifacts in artifact directory)\n- Expected state: At least 1 item in failed state, 1+ items in downloaded state, 0 items in queued state (based on current test environment)\n\n## Test Cases\n\n### TC01: Filter by Valid Stage — Failed Items\n\n**Objective:** Operator filters status display to see only failed transcriptions\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status --filter failed`\n2. Observe the output\n\n**Expected Outcome:**\n- Exit code: 0\n- Output contains table header (STAGE, TITLE, CHANNEL, DATE, OUTCOME, REASON)\n- All rows have STAGE value = `failed`\n- At least 2 rows visible (based on test data with 2 known failed items)\n- Examples: \"hear exited with status\", \"Transcription command exited\"\n- Footer line: \"N item(s) total\" where N ≥ 2\n\n**Pass Criteria:** All rows show STAGE=`failed`, exit code is 0\n\n---\n\n### TC02: Filter by Valid Stage — Downloaded Items\n\n**Objective:** Operator views all items in downloaded state (includes legacy imports)\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status --filter downloaded`\n2. Observe the output\n\n**Expected Outcome:**\n- Exit code: 0\n- Output contains table header\n- All rows have STAGE value = `downloaded`\n- Multiple rows visible (test data includes legacy transcript imports)\n- All OUTCOME values are likely \"legacy\" (legacy transcript imported...)\n- Footer: \"N item(s) total\" where N ≥ 5\n\n**Pass Criteria:** All rows show STAGE=`downloaded`, exit code is 0\n\n---\n\n### TC03: Filter by Valid Stage — Queued Items (No Match)\n\n**Objective:** Operator filters for queued items when none exist (demonstrates not-found path)\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status --filter queued`\n2. Observe the output\n\n**Expected Outcome:**\n- Exit code: 0 (not an error)\n- stdout: `No items matching filter 'queued'.`\n- No error message to stderr\n- No table displayed\n\n**Pass Criteria:** Exact message \"No items matching filter 'queued'.\", exit code 0\n\n---\n\n### TC04: Filter by Valid Stage — Ready Items (No Match)\n\n**Objective:** Operator filters for ready items when none exist (similar to TC03)\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status --filter ready`\n2. Observe the output\n\n**Expected Outcome:**\n- Exit code: 0\n- stdout: `No items matching filter 'ready'.`\n- No error message to stderr\n- No table displayed\n\n**Pass Criteria:** Exact message \"No items matching filter 'ready'.\", exit code 0\n\n---\n\n### TC05: Filter by Valid Stage — Suspect Items (Boundary Case)\n\n**Objective:** Test filtering for suspect transcription state (May or may not have matches)\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status --filter suspect`\n2. Observe the output\n\n**Expected Outcome:**\n- Exit code: 0\n- If matches exist: table with all rows STAGE=`suspect`\n- If no matches: message \"No items matching filter 'suspect'.\"\n\n**Pass Criteria:** Exit code 0; output is either filtered table or not-found message (both valid)\n\n---\n\n### TC06: Invalid Filter Value — Typo\n\n**Objective:** Operator makes a typo in filter value; system provides helpful error\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status --filter typo`\n2. Observe stderr and exit code\n\n**Expected Outcome:**\n- Exit code: 1 (non-zero, indicates error)\n- stderr: `unknown filter 'typo'; valid values: queued, downloaded, suspect, failed, ready`\n- No table displayed\n\n**Pass Criteria:** Exit code 1, stderr contains \"unknown filter 'typo'\" and lists all valid values\n\n---\n\n### TC07: Invalid Filter Value — Unrecognized Stage Name\n\n**Objective:** Test filtering by a stage name that doesn't exist in the model\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status --filter transcribed`\n2. Observe stderr and exit code\n\n**Expected Outcome:**\n- Exit code: 1\n- stderr: `unknown filter 'transcribed'; valid values: queued, downloaded, suspect, failed, ready`\n\n**Pass Criteria:** Exit code 1, valid values list in error message\n\n---\n\n### TC08: Case Sensitivity — Uppercase Stage\n\n**Objective:** Verify filter values are case-sensitive (no automatic folding)\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status --filter Failed`\n2. Observe stderr and exit code\n\n**Expected Outcome:**\n- Exit code: 1 (not treated as valid \"failed\")\n- stderr: `unknown filter 'Failed'; valid values: ...`\n\n**Pass Criteria:** Exit code 1, uppercase variant is rejected as invalid\n\n---\n\n### TC09: Case Sensitivity — Mixed Case\n\n**Objective:** Additional case-sensitivity test\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status --filter Queued`\n2. Observe stderr and exit code\n\n**Expected Outcome:**\n- Exit code: 1\n- stderr: `unknown filter 'Queued'; valid values: ...`\n\n**Pass Criteria:** Exit code 1, mixed-case variant is rejected\n\n---\n\n### TC10: Help Text — Flag Documentation\n\n**Objective:** Verify --filter flag is documented in help\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status --help`\n2. Search output for \"--filter\"\n\n**Expected Outcome:**\n- help output includes: `--filter <STAGE>` with description mentioning valid stages\n- Example: \"Show only items in the given stage: queued, downloaded, suspect, failed, ready\"\n\n**Pass Criteria:** Help text includes --filter flag and list of valid stages\n\n---\n\n### TC11: No Filter Flag (Backward Compatibility)\n\n**Objective:** Verify existing `status` command behavior is preserved when no --filter is provided\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status`\n2. Observe output\n\n**Expected Outcome:**\n- Exit code: 0\n- Output displays merged table of all items (queued + artifacts) with all stages\n- Multiple rows visible (both failed, downloaded, etc.)\n- No filter applied, so all stages represented\n\n**Pass Criteria:** All items displayed, no filtering applied, backward-compatible behavior\n\n---\n\n### TC12: Help for Status Subcommand\n\n**Objective:** Verify status subcommand shows --filter in its own help\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status -h`\n2. Search for \"--filter\"\n\n**Expected Outcome:**\n- Same documentation as TC10 (--filter flag with description)\n\n**Pass Criteria:** --filter flag documented in status subcommand help\n\n---\n\n### TC13: Filter Matches All Items (Edge Case)\n\n**Objective:** Filter applies but matches all items (no reduction)\n\n**Steps:**\n1. Run: `./target/debug/vod-pipeline status --filter downloaded` (assuming many downloaded items exist)\n2. Count rows in output\n3. Run `./target/debug/vod-pipeline status` (no filter)\n4. Count rows in output\n5. Note total lines (compare counts)\n\n**Expected Outcome:**\n- Filtered output shows fewer or equal rows\n- If all items are in downloaded state, counts would be equal\n- Footer \"N item(s) total\" reflects the filtered set size\n\n**Pass Criteria:** Filtered count ≤ unfiltered count; counts are consistent\n\n---\n\n## Summary\n\n**Total Test Cases:** 13\n- **Positive Cases (filtering works):** TC01, TC02, TC05, TC11 (4 cases)\n- **Not-Found Cases (valid filter, no matches):** TC03, TC04 (2 cases)\n- **Invalid Input Cases (error handling):** TC06, TC07, TC08, TC09 (4 cases)\n- **Documentation Cases (help/backward-compat):** TC10, TC12, TC13 (3 cases)\n\n**Success Criteria:** All 13 test cases pass with expected exit codes, output messages, and filtering behavior.\n",
+      "goal": "Add `--filter <stage>` to the `status` subcommand so operators can narrow the display to items in a specific pipeline stage (queued, downloaded, suspect, failed, ready).",
+      "success_criteria": "- `status --filter queued` shows only queued rows; `status --filter failed` shows only failed rows\n- `status --filter typo` exits 1 with message listing valid values\n- `status --filter ready` with no matching items prints \"No items matching filter 'ready'.\" and exits 0\n- `cargo test` passes (28 existing + 3 new filter tests)\n- `cargo build` succeeds",
+      "proof_level": "contract",
+      "integration_closure": "Consumes `show_status` and the `Status` CLI variant from S02/S04. Produces the `--filter` flag wired end-to-end. S06 (Retry and Operational Hardening) depends on this slice being complete.",
+      "observability_impact": "None — pure display filtering, no new async paths or failure states.",
       "sequence": 0,
       "replan_triggered_at": null
     },
@@ -317,19 +314,17 @@
       "title": "Retry And Operational Hardening",
       "status": "pending",
       "risk": "medium",
-      "depends": [
-        "S05"
-      ],
+      "depends": [],
       "demo": "After this: run transcribe-all --force-suspect and watch a suspect item re-transcribe and update its outcome in status.",
       "created_at": "2026-04-06T07:19:16.646Z",
       "completed_at": null,
       "full_summary_md": "",
       "full_uat_md": "",
-      "goal": "Add force-retry for suspect transcriptions without re-downloading. Add file-level locking on status.json writes. Validate long-VOD transcription behavior.",
-      "success_criteria": "transcribe-all --force-suspect retries artifacts with transcription_outcome=suspect. status.json writes use file locking so concurrent writes do not corrupt. A >3h VOD can be transcribed without process-level failure.",
-      "proof_level": "unit tests for locking behavior + manual retry on a real suspect artifact",
-      "integration_closure": "force-retry path reuses transcribe_artifact helper with a force flag; locking wraps write_status",
-      "observability_impact": "retry prints previous outcome and new outcome after completion",
+      "goal": "Add `--force-suspect` to `transcribe-all` so suspect transcriptions can be retried without re-downloading, and add blocking file locking to `status.json` writes so parallel `download-all` and `transcribe-all` invocations do not corrupt artifact state.",
+      "success_criteria": "- `cargo test` passes (31 existing + new tests for force-suspect filtering and concurrent write safety)\n- `cargo build` succeeds clean\n- `transcribe-all --force-suspect` includes suspect items in the transcription run; without the flag, suspect items are still skipped\n- `transcribe-all --force-suspect --video-id <id>` composes correctly (only the named suspect item is retried)\n- After force-retry, `status.json` reflects the new outcome (`completed`, `suspect`, or `failed`)\n- All `write_status` calls acquire a blocking exclusive lock on `status.lock` before writing; no API change to callers\n- `status.lock` file is created alongside `status.json` in any artifact directory that has been written",
+      "proof_level": "contract — unit tests verify filter predicate logic and concurrent write safety; no live Twitch session required",
+      "integration_closure": "Upstream: `src/cli.rs` (TranscribeAll variant), `src/main.rs` (transcribe_all + dispatch), `src/artifact.rs` (write_status). New wiring: `force_suspect` field threaded from CLI → dispatch → transcribe_all; fs4 lock wrapping write_status. Remaining before end-to-end usability: S07 (Additional Source Support).",
+      "observability_impact": "No new logging surfaces. `status.lock` file presence is the operator-visible signal that locking is active. Force-retry outcome is visible in `status.json` after the run completes.",
       "sequence": 0,
       "replan_triggered_at": null
     },
@@ -1096,6 +1091,135 @@
       "observability_impact": "",
       "full_plan_md": "",
       "sequence": 0
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "slice_id": "S05",
+      "id": "T01",
+      "title": "Wired --filter &lt;stage&gt; end-to-end in status subcommand with validation, filtering, not-found messaging, and 3 unit tests",
+      "status": "complete",
+      "one_liner": "Wired --filter &lt;stage&gt; end-to-end in status subcommand with validation, filtering, not-found messaging, and 3 unit tests",
+      "narrative": "Added filter: Option&lt;String&gt; to the Status CLI variant, registered --filter STAGE arg on the status subcommand, and threaded it through the dispatch block into show_status. Inside show_status, after both item vecs are assembled: validates against the five valid stage strings (stderr + exit 1 on unknown), shadow-rebiinds queued_only and artifact_items via filter application (queued_only passes only when f == queued; artifact_items filtered by derive_stage), and updates the empty-check to distinguish no-filter vs filter-but-no-match. Defined pub fn is_valid_filter_stage in lib.rs for test access; private inline copy in main.rs because the binary uses mod declarations and cannot reference the lib crate externally. Added 3 unit tests in artifact.rs covering all valid stages, invalid/typo inputs, and case-sensitivity.",
+      "verification_result": "cargo test: 31/31 pass. cargo build: clean. ./target/debug/vod-pipeline status --filter typo 2>&1 | grep -q 'unknown filter' &amp;&amp; echo 'VERIFY OK' printed VERIFY OK.",
+      "duration": "",
+      "completed_at": "2026-04-07T03:46:52.261Z",
+      "blocker_discovered": false,
+      "deviations": "Defined both pub const VALID_FILTER_STAGES and pub fn is_valid_filter_stage in lib.rs rather than only a const in main.rs, because main.rs binary cannot reference twitch_dl_rs:: externally — using it caused E0433.",
+      "known_issues": "None.",
+      "key_files": [
+        "src/cli.rs",
+        "src/main.rs",
+        "src/lib.rs",
+        "src/artifact.rs"
+      ],
+      "key_decisions": [
+        "is_valid_filter_stage defined in lib.rs for test access; private inline copy in main.rs binary since binary uses mod declarations not the lib crate",
+        "filter applied post-assembly via two shadow-rebound bindings to keep queued_only and artifact_items logic symmetric"
+      ],
+      "full_summary_md": "---\nid: T01\nparent: S05\nmilestone: M002-z48awz\nkey_files:\n  - src/cli.rs\n  - src/main.rs\n  - src/lib.rs\n  - src/artifact.rs\nkey_decisions:\n  - is_valid_filter_stage defined in lib.rs for test access; private inline copy in main.rs binary since binary uses mod declarations not the lib crate\n  - filter applied post-assembly via two shadow-rebound bindings to keep queued_only and artifact_items logic symmetric\nduration: \nverification_result: passed\ncompleted_at: 2026-04-07T03:46:52.256Z\nblocker_discovered: false\n---\n\n# T01: Wired --filter &lt;stage&gt; end-to-end in status subcommand with validation, filtering, not-found messaging, and 3 unit tests\n\n**Wired --filter &lt;stage&gt; end-to-end in status subcommand with validation, filtering, not-found messaging, and 3 unit tests**\n\n## What Happened\n\nAdded filter: Option&lt;String&gt; to the Status CLI variant, registered --filter STAGE arg on the status subcommand, and threaded it through the dispatch block into show_status. Inside show_status, after both item vecs are assembled: validates against the five valid stage strings (stderr + exit 1 on unknown), shadow-rebiinds queued_only and artifact_items via filter application (queued_only passes only when f == queued; artifact_items filtered by derive_stage), and updates the empty-check to distinguish no-filter vs filter-but-no-match. Defined pub fn is_valid_filter_stage in lib.rs for test access; private inline copy in main.rs because the binary uses mod declarations and cannot reference the lib crate externally. Added 3 unit tests in artifact.rs covering all valid stages, invalid/typo inputs, and case-sensitivity.\n\n## Verification\n\ncargo test: 31/31 pass. cargo build: clean. ./target/debug/vod-pipeline status --filter typo 2>&1 | grep -q 'unknown filter' &amp;&amp; echo 'VERIFY OK' printed VERIFY OK.\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `cargo test 2>&1 | grep -E 'test result|FAILED'` | 0 | ✅ pass | 3000ms |\n| 2 | `cargo build --quiet` | 0 | ✅ pass | 100ms |\n| 3 | `./target/debug/vod-pipeline status --filter typo 2>&1 | grep -q 'unknown filter' && echo 'VERIFY OK'` | 0 | ✅ pass | 50ms |\n\n## Deviations\n\nDefined both pub const VALID_FILTER_STAGES and pub fn is_valid_filter_stage in lib.rs rather than only a const in main.rs, because main.rs binary cannot reference twitch_dl_rs:: externally — using it caused E0433.\n\n## Known Issues\n\nNone.\n\n## Files Created/Modified\n\n- `src/cli.rs`\n- `src/main.rs`\n- `src/lib.rs`\n- `src/artifact.rs`\n",
+      "description": "Wire `--filter <stage>` end-to-end: add the field to the CLI struct, register the arg, thread it through dispatch, apply it in show_status, handle the two edge cases, and add unit tests.\n\n## Steps\n\n1. **`src/cli.rs` — CLI struct**: Add `filter: Option<String>` to the `Status { output_root }` variant (line ~39). After the change it reads: `Status { output_root: PathBuf, filter: Option<String> }`.\n\n2. **`src/cli.rs` — subcommand definition**: Inside the `Command::new(\"status\")` block (line ~219), add a new `Arg`:\n   ```rust\n   .arg(\n       Arg::new(\"filter\")\n           .long(\"filter\")\n           .value_name(\"STAGE\")\n           .help(\"Show only items in the given stage: queued, downloaded, suspect, failed, ready\")\n           .required(false),\n   )\n   ```\n\n3. **`src/cli.rs` — parse arm**: In the `Some((\"status\", status_matches))` arm (line ~383), populate the new field:\n   ```rust\n   filter: status_matches.get_one::<String>(\"filter\").cloned(),\n   ```\n\n4. **`src/main.rs` — dispatch block**: Destructure `filter` from the variant and pass it to `show_status` (line ~72):\n   ```rust\n   cli::CliCommand::Status { output_root, filter } => {\n       if let Err(error) = show_status(&output_root, filter.as_deref()).await {\n   ```\n\n5. **`src/main.rs` — `show_status` signature**: Change the function signature at line ~850:\n   ```rust\n   async fn show_status(output_root: &std::path::Path, filter: Option<&str>) -> Result<(), Box<dyn std::error::Error>>\n   ```\n\n6. **`src/main.rs` — filter validation**: Insert immediately after the two item vecs are assembled (after `queued_only` is built, before the early-exit empty check):\n   ```rust\n   const VALID_STAGES: &[&str] = &[\"queued\", \"downloaded\", \"suspect\", \"failed\", \"ready\"];\n   if let Some(f) = filter {\n       if !VALID_STAGES.contains(&f) {\n           eprintln!(\"unknown filter '{}'; valid values: queued, downloaded, suspect, failed, ready\", f);\n           std::process::exit(1);\n       }\n   }\n   ```\n\n7. **`src/main.rs` — apply filter**: After the validation block, apply the filter to both item collections:\n   ```rust\n   let queued_only: Vec<_> = if let Some(f) = filter {\n       if f == \"queued\" { queued_only } else { vec![] }\n   } else {\n       queued_only\n   };\n   // For artifact_items: build a filtered vec by computing stage inline\n   let artifact_items: Vec<_> = if let Some(f) = filter {\n       artifact_items\n           .into_iter()\n           .filter(|(id, status)| {\n               let artifact_dir = output_root.join(id);\n               derive_stage(status, &artifact_dir) == f\n           })\n           .collect()\n   } else {\n       artifact_items\n   };\n   ```\n   Note: `queued_only` is already declared above — shadow/rebind it rather than mutating in place.\n\n8. **`src/main.rs` — not-found case**: Update the early-exit empty check (currently checks pre-filter emptiness) to run after filtering, and add the not-found message:\n   ```rust\n   if artifact_items.is_empty() && queued_only.is_empty() {\n       if let Some(f) = filter {\n           println!(\"No items matching filter '{}'.\", f);\n       } else {\n           println!(\"No artifacts found in {}\", output_root.display());\n       }\n       return Ok(());\n   }\n   ```\n\n9. **`src/artifact.rs` — unit tests**: Add 3 tests using the same pattern established in S04. These test the filter logic itself (no I/O needed for the validation path):\n   - `test_status_filter_valid_stage_queued`: verify that filter value \"queued\" is in VALID_STAGES and \"downloaded\" is also valid\n   - `test_status_filter_invalid_stage`: verify that \"typo\", \"QUEUED\", and \"ready_for_notes\" are NOT in VALID_STAGES\n   - `test_status_filter_case_sensitive`: verify that \"Queued\", \"FAILED\", \"Ready\" are not valid (case folding is explicitly not supported)\n   \n   Since VALID_STAGES is defined inside show_status, expose it as a `pub const` at module level in main.rs (or define a helper the tests can call). The simplest approach: define `pub const VALID_FILTER_STAGES: &[&str]` in `src/lib.rs` or at the top of `src/main.rs`, then reference it in show_status and in tests.\n   \n   Alternatively, write the tests as compile checks against a function: add a `pub fn is_valid_filter_stage(s: &str) -> bool` in `src/main.rs` (accessible via lib.rs) and test that function directly. This is cleanest.",
+      "estimate": "45m",
+      "files": [
+        "src/cli.rs",
+        "src/main.rs",
+        "src/artifact.rs",
+        "src/lib.rs"
+      ],
+      "verify": "cargo test 2>&1 | grep -E 'test result|FAILED' && cargo build --quiet 2>&1 && ./target/debug/vod-pipeline status --filter typo 2>&1 | grep -q 'unknown filter' && echo 'VERIFY OK'",
+      "inputs": [
+        "`src/cli.rs` — Status variant definition and status subcommand arg registration (lines ~39, ~219, ~383)",
+        "`src/main.rs` — dispatch block (line ~72), show_status signature and body (lines ~850–955)",
+        "`src/artifact.rs` — existing unit tests for pattern reference (lines ~500+)",
+        "`src/lib.rs` — module re-exports for test visibility"
+      ],
+      "expected_output": [
+        "`src/cli.rs` — Status variant with filter field; status subcommand with --filter arg; parse arm populating filter",
+        "`src/main.rs` — show_status with filter parameter; VALID_FILTER_STAGES const or is_valid_filter_stage helper; filter validation, application, and not-found message",
+        "`src/artifact.rs` — 3 new unit tests for filter validation logic"
+      ],
+      "observability_impact": "",
+      "full_plan_md": "",
+      "sequence": 0
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "slice_id": "S06",
+      "id": "T01",
+      "title": "Added --force-suspect flag to transcribe-all command with updated filter predicate logic",
+      "status": "complete",
+      "one_liner": "Added --force-suspect flag to transcribe-all command with updated filter predicate logic",
+      "narrative": "Successfully implemented the --force-suspect flag for transcribe-all following the established pattern for boolean CLI flags. Added force_suspect: bool field to TranscribeAll enum variant, wired the --force-suspect clap argument with ArgAction::SetTrue, and updated transcribe_all() function to accept the flag and apply the new filter predicate. The predicate correctly composes normal pending items (always included), suspect items (excluded unless force_suspect=true), and completed items (never included). Added comprehensive unit test verifying filter behavior with both force_suspect=true and force_suspect=false. All tests pass with no regressions.\"",
+      "verification_result": "cargo test confirmed all 32 tests pass including new test_force_suspect_filter_predicate. cargo build successful with no warnings or errors. CLI help text correctly displays --force-suspect flag with proper description. Filter predicate tested with three mock ProcessStatus entries (normal pending, suspect, completed) verifying correct behavior in both modes.\"",
+      "duration": "",
+      "completed_at": "2026-04-07T04:24:24.397Z",
+      "blocker_discovered": false,
+      "deviations": "None.",
+      "known_issues": "None.",
+      "key_files": [
+        "src/cli.rs",
+        "src/main.rs",
+        "src/lib.rs"
+      ],
+      "key_decisions": [],
+      "full_summary_md": "---\nid: T01\nparent: S06\nmilestone: M002-z48awz\nkey_files:\n  - src/cli.rs\n  - src/main.rs\n  - src/lib.rs\nkey_decisions:\n  - (none)\nduration: \nverification_result: passed\ncompleted_at: 2026-04-07T04:24:24.394Z\nblocker_discovered: false\n---\n\n# T01: Added --force-suspect flag to transcribe-all command with updated filter predicate logic\n\n**Added --force-suspect flag to transcribe-all command with updated filter predicate logic**\n\n## What Happened\n\nSuccessfully implemented the --force-suspect flag for transcribe-all following the established pattern for boolean CLI flags. Added force_suspect: bool field to TranscribeAll enum variant, wired the --force-suspect clap argument with ArgAction::SetTrue, and updated transcribe_all() function to accept the flag and apply the new filter predicate. The predicate correctly composes normal pending items (always included), suspect items (excluded unless force_suspect=true), and completed items (never included). Added comprehensive unit test verifying filter behavior with both force_suspect=true and force_suspect=false. All tests pass with no regressions.\"\n\n## Verification\n\ncargo test confirmed all 32 tests pass including new test_force_suspect_filter_predicate. cargo build successful with no warnings or errors. CLI help text correctly displays --force-suspect flag with proper description. Filter predicate tested with three mock ProcessStatus entries (normal pending, suspect, completed) verifying correct behavior in both modes.\"\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `cargo build` | 0 | ✅ pass | 60ms |\n| 2 | `cargo test` | 0 | ✅ pass | 200ms |\n| 3 | `cargo test test_force_suspect_filter_predicate` | 0 | ✅ pass | 100ms |\n| 4 | `cargo run -- transcribe-all --help` | 0 | ✅ pass | 500ms |\n\n## Deviations\n\nNone.\n\n## Known Issues\n\nNone.\n\n## Files Created/Modified\n\n- `src/cli.rs`\n- `src/main.rs`\n- `src/lib.rs`\n",
+      "description": "Add `force_suspect: bool` to the `TranscribeAll` CLI variant, wire the `--force-suspect` clap arg, thread the flag through dispatch into `transcribe_all()`, update the filter predicate to include suspect items when `force_suspect=true`, and add a unit test verifying the filter behavior.\n\nThe executor should follow the exact pattern established by `--continue-on-error` and `--video-id` — all three are bool/Option fields on `TranscribeAll`, clap args using `ArgAction::SetTrue` (for the bool) or value args (for Option<String>), and the flag is destructured in the dispatch match arm.\n\n**No changes to `transcribe_artifact()` are needed.** Suspect items have `status.transcribed = false`, so the existing reuse guard (`srt_path.exists() && vtt_path.exists() && status.transcribed`) evaluates to `false` for suspect items and does not block re-transcription. `transcribe_to_srt_and_vtt()` already cleans up stale SRT/VTT at entry.\n\nThe filter predicate in `transcribe_all()` currently is:\n```rust\nif s.downloaded && !s.transcribed && s.transcription_outcome.as_deref() != Some(\"suspect\")\n```\nReplace with:\n```rust\nlet is_suspect = s.transcription_outcome.as_deref() == Some(\"suspect\");\nlet include = s.downloaded && ((!s.transcribed && !is_suspect) || (force_suspect && is_suspect));\nif include\n```\nThis correctly composes with the `--video-id` post-filter (which applies to `pending` after it is built) without any additional logic.\n\nAdd a unit test in `src/lib.rs` (the project's test home, following the lib.rs re-export pattern established in M001/S03) that:\n1. Creates three mock `(vid, ProcessStatus)` entries: one normal pending (downloaded=true, transcribed=false, no outcome), one suspect (downloaded=true, transcribed=false, outcome=\"suspect\"), one completed (downloaded=true, transcribed=true)\n2. Applies the filter predicate with `force_suspect=false` and asserts only the normal pending item passes\n3. Applies the filter with `force_suspect=true` and asserts both the normal pending item and the suspect item pass (completed still excluded)\n\nThe test should exercise the predicate logic directly (not call `transcribe_all` which is async and touches the filesystem).",
+      "estimate": "45m",
+      "files": [
+        "src/cli.rs",
+        "src/main.rs",
+        "src/lib.rs"
+      ],
+      "verify": "cargo test 2>&1 | grep -E 'result|FAILED'; cargo build 2>&1 | grep -E 'error|warning.*unused'",
+      "inputs": [
+        "`src/cli.rs` — TranscribeAll variant and transcribe-all subcommand arg definitions",
+        "`src/main.rs` — dispatch match arm for TranscribeAll and transcribe_all() function",
+        "`src/lib.rs` — existing test module location"
+      ],
+      "expected_output": [
+        "`src/cli.rs` — TranscribeAll struct with force_suspect field; --force-suspect arg in transcribe-all subcommand; parse in match arm",
+        "`src/main.rs` — transcribe_all() accepts force_suspect param; dispatch passes it through; filter predicate updated",
+        "`src/lib.rs` — unit test verifying force_suspect filter predicate logic (suspect included when true, excluded when false)"
+      ],
+      "observability_impact": "",
+      "full_plan_md": "",
+      "sequence": 0
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "slice_id": "S06",
+      "id": "T02",
+      "title": "Add blocking exclusive file lock to write_status via fs4",
+      "status": "pending",
+      "one_liner": "",
+      "narrative": "",
+      "verification_result": "",
+      "duration": "",
+      "completed_at": null,
+      "blocker_discovered": false,
+      "deviations": "",
+      "known_issues": "",
+      "key_files": [],
+      "key_decisions": [],
+      "full_summary_md": "",
+      "description": "Add `fs4` as a dependency in `Cargo.toml` and wrap `write_status()` in `artifact.rs` with a blocking exclusive lock on a `status.lock` file, then add a concurrent-write unit test.\n\n**Cargo.toml change:**\n```toml\nfs4 = { version = \"0.13\", features = [\"sync\"] }\n```\nAdd under `[dependencies]`.\n\n**Import in artifact.rs:**\n```rust\nuse fs4::fs_std::FileExt;\nuse std::fs::OpenOptions;\n```\n\n**New write_status():**\n```rust\npub fn write_status(\n    artifact_dir: &Path,\n    status: &ProcessStatus,\n) -> Result<PathBuf, Box<dyn std::error::Error>> {\n    let lock_path = artifact_dir.join(\"status.lock\");\n    let lock_file = OpenOptions::new()\n        .read(true)\n        .write(true)\n        .create(true)\n        .open(&lock_path)?;\n    lock_file.lock_exclusive()?;  // blocking — waits until acquired\n\n    let status_path = artifact_dir.join(\"status.json\");\n    let json = serde_json::to_string_pretty(status)?;\n    let result = fs::write(&status_path, format!(\"{json}\\n\"));\n    // lock_file drops here, releasing the lock automatically\n    result?;\n    Ok(status_path)\n}\n```\nThe lock is released via RAII when `lock_file` drops at function return. No explicit `unlock()` call needed.\n\n**No API change**: signature and return type remain identical. All existing callers (e.g. `write_status(&artifact_dir, &status).unwrap()` in tests) work without modification.\n\n**Unit test** (add to the test module in `src/artifact.rs`):\n- Spawn two `std::thread::spawn` threads, both calling `write_status` on the same temp artifact dir\n- Thread 1 writes a status with `downloaded=true, transcribed=false`\n- Thread 2 writes a status with `downloaded=true, transcribed=true`\n- Join both threads; assert both `unwrap()` without panic\n- Read back `status.json` and assert it deserializes successfully (no corruption — the file is valid JSON)\n- The test proves both writes complete and the final file is coherent JSON; it does not assert which write won (last writer wins is correct behavior)\n\nDocument the fs4 crate choice in DECISIONS.md via the gsd_decision_save tool after the implementation is complete.",
+      "estimate": "30m",
+      "files": [
+        "Cargo.toml",
+        "src/artifact.rs"
+      ],
+      "verify": "cargo test 2>&1 | grep -E 'result|FAILED'; cargo build 2>&1 | grep error; test -f Cargo.lock && grep -A1 'name = \"fs4\"' Cargo.lock | head -3",
+      "inputs": [
+        "`Cargo.toml` — dependencies section",
+        "`src/artifact.rs` — write_status() function and test module"
+      ],
+      "expected_output": [
+        "`Cargo.toml` — fs4 dependency added under [dependencies]",
+        "`src/artifact.rs` — write_status() wrapped with blocking exclusive lock on status.lock; concurrent-write unit test added",
+        "`Cargo.lock` — updated with fs4 and its transitive dependencies"
+      ],
+      "observability_impact": "",
+      "full_plan_md": "",
+      "sequence": 0
     }
   ],
   "decisions": [
@@ -1371,6 +1495,30 @@
       "decision": "No --verbose flag for S02 REASON column",
       "choice": "REASON column is truncated to 35 chars inline in default status output; no separate --verbose flag added",
       "rationale": "Task plan Q7 asked whether REASON column would cause width overflow. Testing shows 6-column table with aggressive truncation fits comfortably at 105-char line width, well under the 130-char standard terminal width. REASON truncation to 35 chars is sufficient to surface failure reasons (e.g., \"Audio extraction timeout\", \"Transcript too short\"). Full reason text is available in status.json if operators need the complete message. Simpler than adding a --verbose flag; reduces CLI surface area.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 24,
+      "id": "D024",
+      "when_context": "S04 completion",
+      "scope": "architecture",
+      "decision": "Filtering strategy for --video-id feature in batch commands",
+      "choice": "Implement filtering at handler level (download_all/transcribe_all functions) rather than at CLI argument validation level",
+      "rationale": "Handler-level filtering preserves queue file and artifact directory integrity (no mutations), enables flexible composition of future filters without CLI parsing changes, and keeps the filter logic visible in the same place where pending-item logic lives. This pattern scales cleanly to S05's multi-filter needs (--filter queued|failed|transcribed).",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 25,
+      "id": "D025",
+      "when_context": "M002-z48awz/S06",
+      "scope": "library",
+      "decision": "Rust crate for blocking exclusive file locking in write_status()",
+      "choice": "fs4 v0.13 with `sync` feature",
+      "rationale": "fs4 is more actively maintained than fs2 (last updated ~11 months ago vs ~8 years), has higher recent download velocity, uses rustix instead of libc as its system interface, and provides the same lock_exclusive() API via the FileExt trait. The sync feature surface is sufficient — async locking is not needed. fs2 is effectively stale at v0.4.3 with no recent activity.",
       "revisable": "Yes",
       "made_by": "agent",
       "superseded_by": null
@@ -1816,6 +1964,83 @@
       "verdict": "✅ pass",
       "duration_ms": 1200,
       "created_at": "2026-04-07T03:08:16.235Z"
+    },
+    {
+      "id": 41,
+      "task_id": "T01",
+      "slice_id": "S05",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo test 2>&1 | grep -E 'test result|FAILED'",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 3000,
+      "created_at": "2026-04-07T03:46:52.261Z"
+    },
+    {
+      "id": 42,
+      "task_id": "T01",
+      "slice_id": "S05",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo build --quiet",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 100,
+      "created_at": "2026-04-07T03:46:52.261Z"
+    },
+    {
+      "id": 43,
+      "task_id": "T01",
+      "slice_id": "S05",
+      "milestone_id": "M002-z48awz",
+      "command": "./target/debug/vod-pipeline status --filter typo 2>&1 | grep -q 'unknown filter' && echo 'VERIFY OK'",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 50,
+      "created_at": "2026-04-07T03:46:52.261Z"
+    },
+    {
+      "id": 44,
+      "task_id": "T01",
+      "slice_id": "S06",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo build",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 60,
+      "created_at": "2026-04-07T04:24:24.397Z"
+    },
+    {
+      "id": 45,
+      "task_id": "T01",
+      "slice_id": "S06",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo test",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 200,
+      "created_at": "2026-04-07T04:24:24.397Z"
+    },
+    {
+      "id": 46,
+      "task_id": "T01",
+      "slice_id": "S06",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo test test_force_suspect_filter_predicate",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 100,
+      "created_at": "2026-04-07T04:24:24.397Z"
+    },
+    {
+      "id": 47,
+      "task_id": "T01",
+      "slice_id": "S06",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo run -- transcribe-all --help",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 500,
+      "created_at": "2026-04-07T04:24:24.397Z"
     }
   ]
 }

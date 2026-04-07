@@ -69,8 +69,8 @@ async fn main() {
                 std::process::exit(1);
             }
         }
-        cli::CliCommand::Status { output_root } => {
-            if let Err(error) = show_status(&output_root).await {
+        cli::CliCommand::Status { output_root, filter } => {
+            if let Err(error) = show_status(&output_root, filter.as_deref()).await {
                 eprintln!("Status failed: {error}");
                 std::process::exit(1);
             }
@@ -93,8 +93,9 @@ async fn main() {
             output_root,
             continue_on_error,
             video_id,
+            force_suspect,
         } => {
-            if let Err(error) = transcribe_all(&output_root, continue_on_error, video_id.as_deref()).await {
+            if let Err(error) = transcribe_all(&output_root, continue_on_error, video_id.as_deref(), force_suspect).await {
                 eprintln!("Transcribe-all failed: {error}");
                 std::process::exit(1);
             }
@@ -603,16 +604,16 @@ async fn transcribe_all(
     output_root: &std::path::Path,
     continue_on_error: bool,
     video_id: Option<&str>,
+    force_suspect: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let items = artifact::scan_artifact_statuses(output_root)?;
     let pending: Vec<_> = items
         .into_iter()
         .filter_map(|(vid, status)| {
             let s = status?;
-            if s.downloaded
-                && !s.transcribed
-                && s.transcription_outcome.as_deref() != Some("suspect")
-            {
+            let is_suspect = s.transcription_outcome.as_deref() == Some("suspect");
+            let include = s.downloaded && ((!s.transcribed && !is_suspect) || (force_suspect && is_suspect));
+            if include {
                 Some((vid, s))
             } else {
                 None
@@ -820,6 +821,11 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+fn is_valid_filter_stage(s: &str) -> bool {
+    const VALID: &[&str] = &["queued", "downloaded", "suspect", "failed", "ready"];
+    VALID.contains(&s)
+}
+
 fn derive_stage(status: &Option<artifact::ProcessStatus>, artifact_dir: &std::path::Path) -> &'static str {
     match status {
         None => {
@@ -847,7 +853,7 @@ fn derive_stage(status: &Option<artifact::ProcessStatus>, artifact_dir: &std::pa
     }
 }
 
-async fn show_status(output_root: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+async fn show_status(output_root: &std::path::Path, filter: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Artifact-dir items
     let artifact_items = artifact::scan_artifact_statuses(output_root)?;
     let artifact_ids: std::collections::HashSet<String> = artifact_items
@@ -862,9 +868,39 @@ async fn show_status(output_root: &std::path::Path) -> Result<(), Box<dyn std::e
         .filter(|v| !artifact_ids.contains(&v.video_id))
         .collect();
 
+    // 3. Validate filter value
+    if let Some(f) = filter {
+        if !is_valid_filter_stage(f) {
+            eprintln!("unknown filter '{}'; valid values: queued, downloaded, suspect, failed, ready", f);
+            std::process::exit(1);
+        }
+    }
+
+    // 4. Apply filter to both collections
+    let queued_only: Vec<_> = if let Some(f) = filter {
+        if f == "queued" { queued_only } else { vec![] }
+    } else {
+        queued_only
+    };
+    let artifact_items: Vec<_> = if let Some(f) = filter {
+        artifact_items
+            .into_iter()
+            .filter(|(id, status)| {
+                let artifact_dir = output_root.join(id);
+                derive_stage(status, &artifact_dir) == f
+            })
+            .collect()
+    } else {
+        artifact_items
+    };
+
     // Early exit if nothing to show
     if artifact_items.is_empty() && queued_only.is_empty() {
-        println!("No artifacts found in {}", output_root.display());
+        if let Some(f) = filter {
+            println!("No items matching filter '{}'.", f);
+        } else {
+            println!("No artifacts found in {}", output_root.display());
+        }
         return Ok(());
     }
 

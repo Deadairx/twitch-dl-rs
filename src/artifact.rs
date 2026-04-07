@@ -937,4 +937,29 @@ mod tests {
         // If we reach here, the filter didn't find the ID, which is unexpected
         panic!("Expected empty filtered vector for non-existent video ID");
     }
+
+    #[test]
+    fn test_status_filter_valid_stage_queued() {
+        assert!(crate::is_valid_filter_stage("queued"));
+        assert!(crate::is_valid_filter_stage("downloaded"));
+        assert!(crate::is_valid_filter_stage("suspect"));
+        assert!(crate::is_valid_filter_stage("failed"));
+        assert!(crate::is_valid_filter_stage("ready"));
+    }
+
+    #[test]
+    fn test_status_filter_invalid_stage() {
+        assert!(!crate::is_valid_filter_stage("typo"));
+        assert!(!crate::is_valid_filter_stage("QUEUED"));
+        assert!(!crate::is_valid_filter_stage("ready_for_notes"));
+        assert!(!crate::is_valid_filter_stage(""));
+    }
+
+    #[test]
+    fn test_status_filter_case_sensitive() {
+        assert!(!crate::is_valid_filter_stage("Queued"));
+        assert!(!crate::is_valid_filter_stage("FAILED"));
+        assert!(!crate::is_valid_filter_stage("Ready"));
+        assert!(!crate::is_valid_filter_stage("Downloaded"));
+    }
 }

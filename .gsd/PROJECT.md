@@ -16,7 +16,7 @@ M001 complete. The full intake-to-transcript pipeline works:
 - `hear`-backed transcription with `completed` / `suspect` / `failed` outcomes
 - `ready_for_notes` as the handoff point to downstream notes work
 
-M002-z48awz (workflow polish) is active. S01 (Metadata Durability), S02 (Status Legibility), and S03 (Intake Flexibility) are complete.
+M002-z48awz (workflow polish) is active. S01–S04 are complete.
 
 **S01 delivered:**
 - `ArtifactMetadata` extended with `title`, `channel`, `uploaded_at` (all `Option<String>`, backward-compatible)
@@ -32,7 +32,6 @@ M002-z48awz (workflow polish) is active. S01 (Metadata Durability), S02 (Status 
 - Deduplication by video_id: artifact-dir row wins when item appears in both queue files and artifact dirs
 - STAGE derivation: "queued", "downloaded", "ready", "failed", "suspect" from status.json + media file presence
 - Graceful degradation: missing metadata.json fields render as em dash (—), no panics
-- 21 tests pass (0 failed); build clean
 
 **S03 delivered:**
 - `queue-video <url>` command for single-VOD intake by Twitch URL
@@ -41,17 +40,24 @@ M002-z48awz (workflow polish) is active. S01 (Metadata Durability), S02 (Status 
 - Optional `[channel]` argument on `download-all` — omitting it walks all `queues/*.json` and processes all pending
 - No-channel path uses artifact-state-based filtering (HashSet of downloaded IDs) for O(1) dedup
 - Single-channel path preserved unchanged (no regressions)
-- 24 tests pass (21 existing + 3 new); build clean
 
-Next slice: S04 (Selective Processing) — `download-all --video-id` filtering.
+**S04 delivered:**
+- `--video-id <id>` flag on `download-all` — filters pending queue items to exact match; exits non-zero with "not found in any queue" if ID absent
+- `--video-id <id>` flag on `transcribe-all` — filters pending artifacts to exact match; exits non-zero with "not found in any artifact" if ID absent
+- Filtering implemented at handler level (post pending-vec construction) to preserve file immutability and enable future filter stacking
+- 4 new unit tests covering filter-with-match and filter-without-match for both commands
+- 28/28 tests pass; build clean
+
+Next slice: S05 (Queue-Aware Filtering) — `status --filter` flag.
 
 ## Architecture / Key Patterns
 
 - **Artifact model:** `<output-root>/<video_id>/` containing `metadata.json`, `source_url.txt`, `audio.m4a`/`video.mp4`, `transcript.srt`, `transcript.vtt`, `status.json`
 - **Queue model:** `<output-root>/queues/<channel>.json` — one file per channel, holds `VodEntry` array
-- **Stage state:** `ProcessStatus` in `status.json` — the durable per-item job record; display metadata (title, date, channel) lives in `metadata.json` only (D013)
+- **Stage state:** `ProcessStatus` in `status.json` — the durable per-item job record; display metadata (title, date, channel) lives in `metadata.json` only
 - **Status display:** STAGE column derives human-readable tokens from status.json + media presence; merged queue+artifact view via scan_queue_files + scan_artifact_statuses; deduplication by HashSet of artifact IDs
 - **Composable helpers:** `download_vod_to_artifact` and `transcribe_artifact` are atomic helpers composed into batch commands
+- **Handler-level filtering:** `--video-id` applied after pending vec is built; pattern extensible to S05's `--filter` flag without CLI parsing changes
 - **Source isolation:** Twitch-specific intake lives in `twitch.rs`; downstream stages are source-agnostic
 - **Metadata threading:** vod_context passed as `Option<(&str, &str, &str)>` through download call stacks; GQL fetch occurs pre-directory-creation to prevent orphan artifacts
 - **Graceful degradation:** All optional display fields default to em dash (—) via `unwrap_or("—")` pattern; no panics on incomplete artifacts
@@ -67,7 +73,7 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
   - [x] S01: Metadata Durability — ArtifactMetadata schema extended, GQL fetch wired, --skip-metadata flag, status.json normalized for bare downloads
   - [x] S02: Status Legibility — 6-column human-readable status table, merged queue+artifact view, STAGE derivation, deduplication, graceful degradation
   - [x] S03: Intake Flexibility — queue-video command + download-all without channel arg (idempotent dedup, artifact-state filtering); 24/24 tests pass
-  - [ ] S04: Selective Processing — download-all --video-id filter
+  - [x] S04: Selective Processing — --video-id filter on download-all and transcribe-all; handler-level post-filter with not-found errors; 28/28 tests pass
   - [ ] S05: Queue-Aware Filtering — status --filter flag
   - [ ] S06: Retry And Operational Hardening — transcribe-all --force-suspect
   - [ ] S07: Additional Source Support — YouTube source through artifact model
