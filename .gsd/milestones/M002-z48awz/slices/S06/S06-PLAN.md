@@ -31,7 +31,7 @@ The test should exercise the predicate logic directly (not call `transcribe_all`
   - Estimate: 45m
   - Files: src/cli.rs, src/main.rs, src/lib.rs
   - Verify: cargo test 2>&1 | grep -E 'result|FAILED'; cargo build 2>&1 | grep -E 'error|warning.*unused'
-- [ ] **T02: Add blocking exclusive file lock to write_status via fs4** — Add `fs4` as a dependency in `Cargo.toml` and wrap `write_status()` in `artifact.rs` with a blocking exclusive lock on a `status.lock` file, then add a concurrent-write unit test.
+- [x] **T02: Added fs4-based blocking exclusive file lock to write_status preventing concurrent corruption of status.json** — Add `fs4` as a dependency in `Cargo.toml` and wrap `write_status()` in `artifact.rs` with a blocking exclusive lock on a `status.lock` file, then add a concurrent-write unit test.
 
 **Cargo.toml change:**
 ```toml

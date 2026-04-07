@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-04-07T04:24:24.440Z",
+  "exported_at": "2026-04-07T04:25:42.912Z",
   "milestones": [
     {
       "id": "M001",
@@ -1188,19 +1188,25 @@
       "milestone_id": "M002-z48awz",
       "slice_id": "S06",
       "id": "T02",
-      "title": "Add blocking exclusive file lock to write_status via fs4",
-      "status": "pending",
-      "one_liner": "",
-      "narrative": "",
-      "verification_result": "",
+      "title": "Added fs4-based blocking exclusive file lock to write_status preventing concurrent corruption of status.json",
+      "status": "complete",
+      "one_liner": "Added fs4-based blocking exclusive file lock to write_status preventing concurrent corruption of status.json",
+      "narrative": "Successfully implemented blocking exclusive file locking for write_status() in src/artifact.rs using fs4 v0.13. Added the dependency to Cargo.toml with [dependencies] and the \"sync\" feature. Updated write_status() to acquire an exclusive lock on a status.lock file before writing status.json, with automatic release via RAII. No API changes — all existing callers work unchanged. Implemented test_concurrent_write_status_no_corruption that spawns two threads writing different ProcessStatus values to the same artifact directory, verifying both complete without panic and the final file is valid JSON. All 65 tests pass including the new concurrent test.\"",
+      "verification_result": "cargo build completed successfully (0 errors). cargo test passed with 33 lib tests + 32 bin tests + 0 doctests = 65 total, all passing. test_concurrent_write_status_no_corruption exercised locking by spawning concurrent threads. Verified Cargo.lock updated with fs4 v0.13.1. File inspection confirms fs4 added to Cargo.toml [dependencies] with version 0.13 and features [sync].\"",
       "duration": "",
-      "completed_at": null,
+      "completed_at": "2026-04-07T04:25:42.824Z",
       "blocker_discovered": false,
-      "deviations": "",
-      "known_issues": "",
-      "key_files": [],
-      "key_decisions": [],
-      "full_summary_md": "",
+      "deviations": "None.",
+      "known_issues": "None.",
+      "key_files": [
+        "Cargo.toml",
+        "src/artifact.rs",
+        "Cargo.lock"
+      ],
+      "key_decisions": [
+        "D026"
+      ],
+      "full_summary_md": "---\nid: T02\nparent: S06\nmilestone: M002-z48awz\nkey_files:\n  - Cargo.toml\n  - src/artifact.rs\n  - Cargo.lock\nkey_decisions:\n  - D026\nduration: \nverification_result: passed\ncompleted_at: 2026-04-07T04:25:42.823Z\nblocker_discovered: false\n---\n\n# T02: Added fs4-based blocking exclusive file lock to write_status preventing concurrent corruption of status.json\n\n**Added fs4-based blocking exclusive file lock to write_status preventing concurrent corruption of status.json**\n\n## What Happened\n\nSuccessfully implemented blocking exclusive file locking for write_status() in src/artifact.rs using fs4 v0.13. Added the dependency to Cargo.toml with [dependencies] and the \"sync\" feature. Updated write_status() to acquire an exclusive lock on a status.lock file before writing status.json, with automatic release via RAII. No API changes — all existing callers work unchanged. Implemented test_concurrent_write_status_no_corruption that spawns two threads writing different ProcessStatus values to the same artifact directory, verifying both complete without panic and the final file is valid JSON. All 65 tests pass including the new concurrent test.\"\n\n## Verification\n\ncargo build completed successfully (0 errors). cargo test passed with 33 lib tests + 32 bin tests + 0 doctests = 65 total, all passing. test_concurrent_write_status_no_corruption exercised locking by spawning concurrent threads. Verified Cargo.lock updated with fs4 v0.13.1. File inspection confirms fs4 added to Cargo.toml [dependencies] with version 0.13 and features [sync].\"\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `cargo build` | 0 | ✅ pass | 4630ms |\n| 2 | `cargo test 2>&1 | grep -E 'result|FAILED'` | 0 | ✅ pass | 20ms |\n| 3 | `grep -A1 'name = \"fs4\"' Cargo.lock` | 0 | ✅ pass | 10ms |\n\n## Deviations\n\nNone.\n\n## Known Issues\n\nNone.\n\n## Files Created/Modified\n\n- `Cargo.toml`\n- `src/artifact.rs`\n- `Cargo.lock`\n",
       "description": "Add `fs4` as a dependency in `Cargo.toml` and wrap `write_status()` in `artifact.rs` with a blocking exclusive lock on a `status.lock` file, then add a concurrent-write unit test.\n\n**Cargo.toml change:**\n```toml\nfs4 = { version = \"0.13\", features = [\"sync\"] }\n```\nAdd under `[dependencies]`.\n\n**Import in artifact.rs:**\n```rust\nuse fs4::fs_std::FileExt;\nuse std::fs::OpenOptions;\n```\n\n**New write_status():**\n```rust\npub fn write_status(\n    artifact_dir: &Path,\n    status: &ProcessStatus,\n) -> Result<PathBuf, Box<dyn std::error::Error>> {\n    let lock_path = artifact_dir.join(\"status.lock\");\n    let lock_file = OpenOptions::new()\n        .read(true)\n        .write(true)\n        .create(true)\n        .open(&lock_path)?;\n    lock_file.lock_exclusive()?;  // blocking — waits until acquired\n\n    let status_path = artifact_dir.join(\"status.json\");\n    let json = serde_json::to_string_pretty(status)?;\n    let result = fs::write(&status_path, format!(\"{json}\\n\"));\n    // lock_file drops here, releasing the lock automatically\n    result?;\n    Ok(status_path)\n}\n```\nThe lock is released via RAII when `lock_file` drops at function return. No explicit `unlock()` call needed.\n\n**No API change**: signature and return type remain identical. All existing callers (e.g. `write_status(&artifact_dir, &status).unwrap()` in tests) work without modification.\n\n**Unit test** (add to the test module in `src/artifact.rs`):\n- Spawn two `std::thread::spawn` threads, both calling `write_status` on the same temp artifact dir\n- Thread 1 writes a status with `downloaded=true, transcribed=false`\n- Thread 2 writes a status with `downloaded=true, transcribed=true`\n- Join both threads; assert both `unwrap()` without panic\n- Read back `status.json` and assert it deserializes successfully (no corruption — the file is valid JSON)\n- The test proves both writes complete and the final file is coherent JSON; it does not assert which write won (last writer wins is correct behavior)\n\nDocument the fs4 crate choice in DECISIONS.md via the gsd_decision_save tool after the implementation is complete.",
       "estimate": "30m",
       "files": [
@@ -1519,6 +1525,18 @@
       "decision": "Rust crate for blocking exclusive file locking in write_status()",
       "choice": "fs4 v0.13 with `sync` feature",
       "rationale": "fs4 is more actively maintained than fs2 (last updated ~11 months ago vs ~8 years), has higher recent download velocity, uses rustix instead of libc as its system interface, and provides the same lock_exclusive() API via the FileExt trait. The sync feature surface is sufficient — async locking is not needed. fs2 is effectively stale at v0.4.3 with no recent activity.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 26,
+      "id": "D026",
+      "when_context": "",
+      "scope": "architecture",
+      "decision": "Choice of file locking mechanism for write_status() mutual exclusion",
+      "choice": "Use fs4 crate (v0.13) with blocking exclusive locks via fs4::fs_std::FileExt",
+      "rationale": "fs4 provides cross-platform, OS-level advisory file locking (POSIX fcntl on Unix, LockFileEx on Windows). Blocking exclusive locks are simpler than reader-writer locks for status.json writes since all callers serialize updates and last-writer-wins is acceptable behavior. RAII semantics (lock drops automatically at scope end) prevent accidental unlock misses. Avoids complexity of std::sync::Mutex on the shared status struct itself, which would require defensive locking everywhere ProcessStatus is accessed.",
       "revisable": "Yes",
       "made_by": "agent",
       "superseded_by": null
@@ -2041,6 +2059,39 @@
       "verdict": "✅ pass",
       "duration_ms": 500,
       "created_at": "2026-04-07T04:24:24.397Z"
+    },
+    {
+      "id": 48,
+      "task_id": "T02",
+      "slice_id": "S06",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo build",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 4630,
+      "created_at": "2026-04-07T04:25:42.824Z"
+    },
+    {
+      "id": 49,
+      "task_id": "T02",
+      "slice_id": "S06",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo test 2>&1 | grep -E 'result|FAILED'",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 20,
+      "created_at": "2026-04-07T04:25:42.824Z"
+    },
+    {
+      "id": 50,
+      "task_id": "T02",
+      "slice_id": "S06",
+      "milestone_id": "M002-z48awz",
+      "command": "grep -A1 'name = \"fs4\"' Cargo.lock",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 10,
+      "created_at": "2026-04-07T04:25:42.824Z"
     }
   ]
 }

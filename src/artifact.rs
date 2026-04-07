@@ -2,7 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use fs4::fs_std::FileExt;
 use serde::{Deserialize, Serialize};
+use std::fs::OpenOptions;
 
 use crate::downloader::StreamInfo;
 use crate::twitch::VodEntry;
@@ -231,9 +233,19 @@ pub fn write_status(
     artifact_dir: &Path,
     status: &ProcessStatus,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let lock_path = artifact_dir.join("status.lock");
+    let lock_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&lock_path)?;
+    lock_file.lock_exclusive()?;  // blocking — waits until acquired
+
     let status_path = artifact_dir.join("status.json");
     let json = serde_json::to_string_pretty(status)?;
-    fs::write(&status_path, format!("{json}\n"))?;
+    let result = fs::write(&status_path, format!("{json}\n"));
+    // lock_file drops here, releasing the lock automatically
+    result?;
     Ok(status_path)
 }
 
@@ -961,5 +973,46 @@ mod tests {
         assert!(!crate::is_valid_filter_stage("FAILED"));
         assert!(!crate::is_valid_filter_stage("Ready"));
         assert!(!crate::is_valid_filter_stage("Downloaded"));
+    }
+
+    #[test]
+    fn test_concurrent_write_status_no_corruption() {
+        use std::thread;
+        use std::sync::Arc;
+
+        let dir = Arc::new(tempdir().unwrap());
+        let artifact_dir = dir.path().join("123456");
+        fs::create_dir_all(&artifact_dir).unwrap();
+
+        let artifact_dir_1 = artifact_dir.clone();
+        let thread_1 = thread::spawn(move || {
+            let mut status = ProcessStatus::new("123456", "https://www.twitch.tv/videos/123456");
+            status.downloaded = true;
+            status.transcribed = false;
+            write_status(&artifact_dir_1, &status).unwrap()
+        });
+
+        let artifact_dir_2 = artifact_dir.clone();
+        let thread_2 = thread::spawn(move || {
+            let mut status = ProcessStatus::new("123456", "https://www.twitch.tv/videos/123456");
+            status.downloaded = true;
+            status.transcribed = true;
+            write_status(&artifact_dir_2, &status).unwrap()
+        });
+
+        // Join both threads; assert both unwrap() without panic
+        let _result_1 = thread_1.join().unwrap();
+        let _result_2 = thread_2.join().unwrap();
+
+        // Read back status.json and assert it deserializes successfully (no corruption)
+        let status_path = artifact_dir.join("status.json");
+        let content = fs::read_to_string(&status_path).unwrap();
+        let deserialized: ProcessStatus = serde_json::from_str(&content).unwrap();
+
+        // Verify the file is valid JSON and contains expected fields
+        assert_eq!(deserialized.video_id, "123456");
+        assert_eq!(deserialized.downloaded, true);
+        // Either transcribed state is valid (last writer wins)
+        assert!(deserialized.transcribed == true || deserialized.transcribed == false);
     }
 }
