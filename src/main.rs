@@ -505,17 +505,21 @@ async fn download_all(
                 .queued
                 .into_iter()
                 .filter(|vod| {
-                    // Filter by video_id if provided
-                    if let Some(vid) = video_id {
-                        if vod.video_id != vid {
-                            return false;
-                        }
-                    }
                     let artifact_dir = output_root.join(&vod.video_id);
                     let status = artifact::read_status(&artifact_dir).unwrap_or(None);
                     !status.map(|s| s.downloaded).unwrap_or(false)
                 })
                 .collect();
+
+            let pending = if let Some(id) = video_id {
+                let filtered: Vec<_> = pending.into_iter().filter(|v| v.video_id == id).collect();
+                if filtered.is_empty() {
+                    return Err(format!("video ID {id} not found in any queue").into());
+                }
+                filtered
+            } else {
+                pending
+            };
 
             if pending.is_empty() {
                 println!("All queued VODs already downloaded.");
@@ -554,19 +558,21 @@ async fn download_all(
                 })
                 .collect();
             
-            // Filter to pending (not downloaded) and optionally by video_id
+            // Filter to pending (not downloaded)
             let pending: Vec<_> = all_vods
                 .into_iter()
-                .filter(|vod| {
-                    // Filter by video_id if provided
-                    if let Some(vid) = video_id {
-                        if vod.video_id != vid {
-                            return false;
-                        }
-                    }
-                    !downloaded_ids.contains(&vod.video_id)
-                })
+                .filter(|vod| !downloaded_ids.contains(&vod.video_id))
                 .collect();
+
+            let pending = if let Some(id) = video_id {
+                let filtered: Vec<_> = pending.into_iter().filter(|v| v.video_id == id).collect();
+                if filtered.is_empty() {
+                    return Err(format!("video ID {id} not found in any queue").into());
+                }
+                filtered
+            } else {
+                pending
+            };
 
             if pending.is_empty() {
                 println!("All queued VODs already downloaded.");
@@ -602,12 +608,6 @@ async fn transcribe_all(
     let pending: Vec<_> = items
         .into_iter()
         .filter_map(|(vid, status)| {
-            // Filter by video_id if provided
-            if let Some(filter_vid) = video_id {
-                if vid != filter_vid {
-                    return None;
-                }
-            }
             let s = status?;
             if s.downloaded
                 && !s.transcribed
@@ -619,6 +619,16 @@ async fn transcribe_all(
             }
         })
         .collect();
+
+    let pending = if let Some(id) = video_id {
+        let filtered: Vec<_> = pending.into_iter().filter(|(vid, _)| vid == id).collect();
+        if filtered.is_empty() {
+            return Err(format!("video ID {id} not found in any artifact").into());
+        }
+        filtered
+    } else {
+        pending
+    };
 
     if pending.is_empty() {
         println!("No artifacts pending transcription.");

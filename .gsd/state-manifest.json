@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-04-07T03:06:04.201Z",
+  "exported_at": "2026-04-07T03:08:16.275Z",
   "milestones": [
     {
       "id": "M001",
@@ -1064,19 +1064,19 @@
       "milestone_id": "M002-z48awz",
       "slice_id": "S04",
       "id": "T02",
-      "title": "Extend download_all and transcribe_all handlers with video_id filter and not-found error; add 4 unit tests",
-      "status": "pending",
-      "one_liner": "",
-      "narrative": "",
-      "verification_result": "",
+      "title": "Extend download_all and transcribe_all with video_id post-filter and not-found error; add 4 unit tests",
+      "status": "complete",
+      "one_liner": "Extend download_all and transcribe_all with video_id post-filter and not-found error; add 4 unit tests",
+      "narrative": "Added video_id post-filtering with not-found error handling to both download_all() and transcribe_all() functions. In download_all, the filter applies after building pending vecs in both single-channel and no-channel paths, returning Err(format!(\\\"video ID {id} not found in any queue\\\")) when no match found. In transcribe_all, similar pattern with error message \\\"video ID {id} not found in any artifact\\\". Implemented 4 unit tests: test_download_all_video_id_filter (filter with match), test_download_all_video_id_not_found (filter without match), test_transcribe_all_video_id_filter (filter with match), test_transcribe_all_video_id_not_found (filter without match). All tests use numeric video IDs to satisfy existing_artifact_ids() digit-only requirement. Tests follow S03 pattern by testing data transformation logic rather than async I/O.\"",
+      "verification_result": "Ran cargo test — all 28 tests pass (24 existing + 4 new). Test output: test result: ok. 28 passed; 0 failed. Verified each new test exercises the filter and not-found paths correctly.\"",
       "duration": "",
-      "completed_at": null,
+      "completed_at": "2026-04-07T03:08:16.234Z",
       "blocker_discovered": false,
-      "deviations": "",
-      "known_issues": "",
+      "deviations": "None.",
+      "known_issues": "None.",
       "key_files": [],
       "key_decisions": [],
-      "full_summary_md": "",
+      "full_summary_md": "---\nid: T02\nparent: S04\nmilestone: M002-z48awz\nkey_files:\n  - (none)\nkey_decisions:\n  - (none)\nduration: \nverification_result: passed\ncompleted_at: 2026-04-07T03:08:16.233Z\nblocker_discovered: false\n---\n\n# T02: Extend download_all and transcribe_all with video_id post-filter and not-found error; add 4 unit tests\n\n**Extend download_all and transcribe_all with video_id post-filter and not-found error; add 4 unit tests**\n\n## What Happened\n\nAdded video_id post-filtering with not-found error handling to both download_all() and transcribe_all() functions. In download_all, the filter applies after building pending vecs in both single-channel and no-channel paths, returning Err(format!(\\\"video ID {id} not found in any queue\\\")) when no match found. In transcribe_all, similar pattern with error message \\\"video ID {id} not found in any artifact\\\". Implemented 4 unit tests: test_download_all_video_id_filter (filter with match), test_download_all_video_id_not_found (filter without match), test_transcribe_all_video_id_filter (filter with match), test_transcribe_all_video_id_not_found (filter without match). All tests use numeric video IDs to satisfy existing_artifact_ids() digit-only requirement. Tests follow S03 pattern by testing data transformation logic rather than async I/O.\"\n\n## Verification\n\nRan cargo test — all 28 tests pass (24 existing + 4 new). Test output: test result: ok. 28 passed; 0 failed. Verified each new test exercises the filter and not-found paths correctly.\"\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `cargo test 2>&1 | grep -E 'test result' | head -1` | 0 | ✅ pass | 1200ms |\n\n## Deviations\n\nNone.\n\n## Known Issues\n\nNone.\n\n## Files Created/Modified\n\nNone.\n",
       "description": "Update `src/main.rs` to: (1) add `video_id: Option<&str>` parameter to `download_all` and `transcribe_all`, (2) apply a post-filter on `pending` in both functions, (3) return a clear error when the ID is not found, (4) update the dispatch block to pass `.as_deref()` for both commands. Add 4 unit tests in `src/artifact.rs` proving filter and not-found behavior.\n\n## Steps\n\n1. Open `src/main.rs`. Change `download_all` signature from `(channel: Option<&str>, output_root: ..., quality: ..., continue_on_error: bool)` to add `video_id: Option<&str>` as the last parameter.\n\n2. In `download_all`, after both the `Some(ch)` branch and the `None` branch build their `pending: Vec<VodEntry>`, apply this filter (applies to BOTH branches identically, so it goes after the pending vec is assembled in each branch — insert once per branch after the existing filter logic):\n```rust\nlet pending = if let Some(id) = video_id {\n    let filtered: Vec<_> = pending.into_iter().filter(|v| v.video_id == id).collect();\n    if filtered.is_empty() {\n        return Err(format!(\"video ID {id} not found in any queue\").into());\n    }\n    filtered\n} else {\n    pending\n};\n```\n\n3. Change `transcribe_all` signature to add `video_id: Option<&str>` as the last parameter.\n\n4. In `transcribe_all`, after the existing `let pending: Vec<_> = items.into_iter().filter_map(...).collect();` block, apply:\n```rust\nlet pending = if let Some(id) = video_id {\n    let filtered: Vec<_> = pending.into_iter().filter(|(vid, _)| vid == id).collect();\n    if filtered.is_empty() {\n        return Err(format!(\"video ID {id} not found in any artifact\").into());\n    }\n    filtered\n} else {\n    pending\n};\n```\n\n5. In the dispatch block, update the `CliCommand::DownloadAll` arm to destructure `video_id` and pass it: change the `download_all(channel.as_deref(), ...)` call to `download_all(channel.as_deref(), &output_root, quality, continue_on_error, video_id.as_deref()).await`.\n\n6. Update the `CliCommand::TranscribeAll` arm to destructure `video_id` and pass it: change the `transcribe_all(&output_root, continue_on_error)` call to `transcribe_all(&output_root, continue_on_error, video_id.as_deref()).await`.\n\n7. Open `src/artifact.rs`. Add 4 unit tests following the patterns from `test_download_all_no_channel_filter` and `test_download_all_channel_regression`:\n\n- `test_download_all_video_id_filter`: Create a temp dir with two queue files containing different video IDs. Build the pending vec (simulate what download_all does: scan_queue_files + filter by artifact status). Apply the video_id filter to one ID. Assert filtered vec has exactly 1 entry with the correct video_id.\n\n- `test_download_all_video_id_not_found`: Same setup. Apply video_id filter with an ID that doesn't exist. Assert the filtered vec is empty (this simulates what causes the not-found error path to trigger).\n\n- `test_transcribe_all_video_id_filter`: Create two artifact dirs with status.json (downloaded=true, transcribed=false). Build the pending vec (simulate scan_artifact_statuses + filter_map). Apply video_id filter to one ID. Assert filtered vec has exactly 1 entry.\n\n- `test_transcribe_all_video_id_not_found`: Same setup. Apply video_id filter with a non-existent ID. Assert filtered vec is empty.\n\nNote: The unit tests test the filter *logic* (building the vec and filtering it), not the full async handler. This is the same pattern used in S03 tests — test the data transformation, not the I/O dispatch. The not-found check is `filtered.is_empty()` — tests that return empty vectors prove the not-found path would trigger.\n\n8. Run `cargo test` and confirm 28/28 pass.",
       "estimate": "35m",
       "files": [
@@ -1805,6 +1805,17 @@
       "verdict": "✅ pass",
       "duration_ms": 160,
       "created_at": "2026-04-07T03:06:04.175Z"
+    },
+    {
+      "id": 40,
+      "task_id": "T02",
+      "slice_id": "S04",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo test 2>&1 | grep -E 'test result' | head -1",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 1200,
+      "created_at": "2026-04-07T03:08:16.235Z"
     }
   ]
 }

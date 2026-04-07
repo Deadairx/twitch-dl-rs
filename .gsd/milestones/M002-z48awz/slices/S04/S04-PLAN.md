@@ -18,7 +18,7 @@
   - Estimate: 20m
   - Files: src/cli.rs
   - Verify: cargo build && ./target/debug/vod-pipeline download-all --help | grep -q 'video-id' && ./target/debug/vod-pipeline transcribe-all --help | grep -q 'video-id'
-- [ ] **T02: Extend download_all and transcribe_all handlers with video_id filter and not-found error; add 4 unit tests** — Update `src/main.rs` to: (1) add `video_id: Option<&str>` parameter to `download_all` and `transcribe_all`, (2) apply a post-filter on `pending` in both functions, (3) return a clear error when the ID is not found, (4) update the dispatch block to pass `.as_deref()` for both commands. Add 4 unit tests in `src/artifact.rs` proving filter and not-found behavior.
+- [x] **T02: Extend download_all and transcribe_all with video_id post-filter and not-found error; add 4 unit tests** — Update `src/main.rs` to: (1) add `video_id: Option<&str>` parameter to `download_all` and `transcribe_all`, (2) apply a post-filter on `pending` in both functions, (3) return a clear error when the ID is not found, (4) update the dispatch block to pass `.as_deref()` for both commands. Add 4 unit tests in `src/artifact.rs` proving filter and not-found behavior.
 
 ## Steps
 

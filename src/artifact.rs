@@ -731,4 +731,210 @@ mod tests {
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].video_id, "222");
     }
+
+    #[test]
+    fn test_download_all_video_id_filter() {
+        let dir = tempdir().unwrap();
+        let queue_dir = dir.path().join("queues");
+        fs::create_dir_all(&queue_dir).unwrap();
+
+        // Setup: Two queue files with entries for different video IDs
+        let queue_json_1 = r#"{"schema_version":1,"channel":"chan1","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":1,"queued":[{"channel":"chan1","title":"VOD A","url":"https://www.twitch.tv/videos/111111","video_id":"111111","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("chan1.json"), queue_json_1).unwrap();
+
+        let queue_json_2 = r#"{"schema_version":1,"channel":"chan2","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":1,"queued":[{"channel":"chan2","title":"VOD B","url":"https://www.twitch.tv/videos/222222","video_id":"222222","uploaded_at":"2026-01-02T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("chan2.json"), queue_json_2).unwrap();
+
+        // Execute: Simulate no-channel download-all with video_id filter (111111)
+        let all_vods = scan_queue_files(dir.path()).unwrap();
+        let artifact_statuses = scan_artifact_statuses(dir.path()).unwrap();
+        let downloaded_ids: std::collections::HashSet<String> = artifact_statuses
+            .iter()
+            .filter_map(|(video_id, status_opt)| {
+                status_opt.as_ref()
+                    .filter(|s| s.downloaded)
+                    .map(|_| video_id.clone())
+            })
+            .collect();
+
+        let pending: Vec<_> = all_vods
+            .into_iter()
+            .filter(|vod| !downloaded_ids.contains(&vod.video_id))
+            .collect();
+
+        // Apply video_id filter
+        let video_id = Some("111111");
+        let pending = if let Some(id) = video_id {
+            let filtered: Vec<_> = pending.into_iter().filter(|v| v.video_id == id).collect();
+            if filtered.is_empty() {
+                panic!("Expected to find video ID 111111");
+            }
+            filtered
+        } else {
+            pending
+        };
+
+        // Assert: Filtered pending has exactly 1 entry with correct video_id
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].video_id, "111111");
+    }
+
+    #[test]
+    fn test_download_all_video_id_not_found() {
+        let dir = tempdir().unwrap();
+        let queue_dir = dir.path().join("queues");
+        fs::create_dir_all(&queue_dir).unwrap();
+
+        // Setup: Two queue files with entries for different video IDs
+        let queue_json_1 = r#"{"schema_version":1,"channel":"chan1","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":1,"queued":[{"channel":"chan1","title":"VOD A","url":"https://www.twitch.tv/videos/111111","video_id":"111111","uploaded_at":"2026-01-01T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("chan1.json"), queue_json_1).unwrap();
+
+        let queue_json_2 = r#"{"schema_version":1,"channel":"chan2","generated_at_epoch_s":0,"past_broadcasts_only":false,"min_seconds":600,"queued_count":1,"queued":[{"channel":"chan2","title":"VOD B","url":"https://www.twitch.tv/videos/222222","video_id":"222222","uploaded_at":"2026-01-02T00:00:00Z","duration":"PT3600S"}],"skipped_existing_ids":[]}"#;
+        fs::write(queue_dir.join("chan2.json"), queue_json_2).unwrap();
+
+        // Execute: Simulate no-channel download-all with video_id filter (non-existent 999999)
+        let all_vods = scan_queue_files(dir.path()).unwrap();
+        let artifact_statuses = scan_artifact_statuses(dir.path()).unwrap();
+        let downloaded_ids: std::collections::HashSet<String> = artifact_statuses
+            .iter()
+            .filter_map(|(video_id, status_opt)| {
+                status_opt.as_ref()
+                    .filter(|s| s.downloaded)
+                    .map(|_| video_id.clone())
+            })
+            .collect();
+
+        let pending: Vec<_> = all_vods
+            .into_iter()
+            .filter(|vod| !downloaded_ids.contains(&vod.video_id))
+            .collect();
+
+        // Apply video_id filter
+        let video_id = Some("999999");
+        let pending = if let Some(id) = video_id {
+            let filtered: Vec<_> = pending.into_iter().filter(|v| v.video_id == id).collect();
+            if filtered.is_empty() {
+                // This is the not-found case — assert it
+                assert!(true);
+                return;
+            }
+            filtered
+        } else {
+            pending
+        };
+
+        // If we reach here, the filter didn't find the ID, which is unexpected
+        panic!("Expected empty filtered vector for non-existent video ID");
+    }
+
+    #[test]
+    fn test_transcribe_all_video_id_filter() {
+        let dir = tempdir().unwrap();
+
+        // Setup: Two artifact dirs with status.json (downloaded=true, transcribed=false)
+        let artifact_dir_1 = dir.path().join("111111");
+        fs::create_dir_all(&artifact_dir_1).unwrap();
+        let mut status_1 = ProcessStatus::new("111111", "https://www.twitch.tv/videos/111111");
+        status_1.downloaded = true;
+        status_1.transcribed = false;
+        status_1.transcription_outcome = None;
+        write_status(&artifact_dir_1, &status_1).unwrap();
+
+        let artifact_dir_2 = dir.path().join("222222");
+        fs::create_dir_all(&artifact_dir_2).unwrap();
+        let mut status_2 = ProcessStatus::new("222222", "https://www.twitch.tv/videos/222222");
+        status_2.downloaded = true;
+        status_2.transcribed = false;
+        status_2.transcription_outcome = None;
+        write_status(&artifact_dir_2, &status_2).unwrap();
+
+        // Execute: Simulate transcribe-all with video_id filter (111111)
+        let items = scan_artifact_statuses(dir.path()).unwrap();
+        let pending: Vec<_> = items
+            .into_iter()
+            .filter_map(|(vid, status)| {
+                let s = status?;
+                if s.downloaded
+                    && !s.transcribed
+                    && s.transcription_outcome.as_deref() != Some("suspect")
+                {
+                    Some((vid, s))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Apply video_id filter
+        let video_id = Some("111111");
+        let pending = if let Some(id) = video_id {
+            let filtered: Vec<_> = pending.into_iter().filter(|(vid, _)| vid == id).collect();
+            if filtered.is_empty() {
+                panic!("Expected to find video ID 111111");
+            }
+            filtered
+        } else {
+            pending
+        };
+
+        // Assert: Filtered pending has exactly 1 entry with correct video_id
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].0, "111111");
+    }
+
+    #[test]
+    fn test_transcribe_all_video_id_not_found() {
+        let dir = tempdir().unwrap();
+
+        // Setup: Two artifact dirs with status.json (downloaded=true, transcribed=false)
+        let artifact_dir_1 = dir.path().join("111111");
+        fs::create_dir_all(&artifact_dir_1).unwrap();
+        let mut status_1 = ProcessStatus::new("111111", "https://www.twitch.tv/videos/111111");
+        status_1.downloaded = true;
+        status_1.transcribed = false;
+        status_1.transcription_outcome = None;
+        write_status(&artifact_dir_1, &status_1).unwrap();
+
+        let artifact_dir_2 = dir.path().join("222222");
+        fs::create_dir_all(&artifact_dir_2).unwrap();
+        let mut status_2 = ProcessStatus::new("222222", "https://www.twitch.tv/videos/222222");
+        status_2.downloaded = true;
+        status_2.transcribed = false;
+        status_2.transcription_outcome = None;
+        write_status(&artifact_dir_2, &status_2).unwrap();
+
+        // Execute: Simulate transcribe-all with video_id filter (non-existent 999999)
+        let items = scan_artifact_statuses(dir.path()).unwrap();
+        let pending: Vec<_> = items
+            .into_iter()
+            .filter_map(|(vid, status)| {
+                let s = status?;
+                if s.downloaded
+                    && !s.transcribed
+                    && s.transcription_outcome.as_deref() != Some("suspect")
+                {
+                    Some((vid, s))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Apply video_id filter
+        let video_id = Some("999999");
+        let pending = if let Some(id) = video_id {
+            let filtered: Vec<_> = pending.into_iter().filter(|(vid, _)| vid == id).collect();
+            if filtered.is_empty() {
+                // This is the not-found case — assert it
+                assert!(true);
+                return;
+            }
+            filtered
+        } else {
+            pending
+        };
+
+        // If we reach here, the filter didn't find the ID, which is unexpected
+        panic!("Expected empty filtered vector for non-existent video ID");
+    }
 }
