@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "M002-z48awz",
+  "sliceId": "S07",
+  "timestamp": 1775537087417,
+  "status": "fail",
+  "durationMs": 1,
+  "checks": [
+    {
+      "category": "file",
+      "target": "`src/artifact.rs`",
+      "passed": false,
+      "message": "Task T01 references '`src/artifact.rs`' which doesn't exist and isn't created by prior tasks",
+      "blocking": true
+    },
+    {
+      "category": "file",
+      "target": "src/ytdlp.rs",
+      "passed": false,
+      "message": "Task T02 references 'src/ytdlp.rs' which doesn't exist and isn't created by prior tasks",
+      "blocking": true
+    },
+    {
+      "category": "file",
+      "target": "`src/lib.rs`",
+      "passed": false,
+      "message": "Task T02 references '`src/lib.rs`' which doesn't exist and isn't created by prior tasks",
+      "blocking": true
+    },
+    {
+      "category": "file",
+      "target": "`src/main.rs`",
+      "passed": false,
+      "message": "Task T03 references '`src/main.rs`' which doesn't exist and isn't created by prior tasks",
+      "blocking": true
+    }
+  ]
+}

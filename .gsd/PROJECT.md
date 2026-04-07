@@ -16,7 +16,7 @@ M001 complete. The full intake-to-transcript pipeline works:
 - `hear`-backed transcription with `completed` / `suspect` / `failed` outcomes
 - `ready_for_notes` as the handoff point to downstream notes work
 
-M002-z48awz (workflow polish) is active. S01–S04 are complete.
+M002-z48awz (workflow polish) is active. S01–S06 are complete.
 
 **S01 delivered:**
 - `ArtifactMetadata` extended with `title`, `channel`, `uploaded_at` (all `Option<String>`, backward-compatible)

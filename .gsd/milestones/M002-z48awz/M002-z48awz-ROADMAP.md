@@ -11,5 +11,5 @@ Make the operator workflow legible, flexible, and robust: status shows human-rea
 | S03 | Intake Flexibility | medium | S01 | ✅ | After this: run queue-video on a Twitch URL, then run download-all with no arguments and watch the queued item download. |
 | S04 | Selective Processing | low | — | ✅ | After this: run download-all --video-id 123456789 and watch only that one item download while others are skipped. |
 | S05 | Queue-Aware Filtering | low | — | ✅ | After this: run status --filter failed and see only failed items; run status --filter queued and see only items waiting to download. |
-| S06 | Retry And Operational Hardening | medium | — | ⬜ | After this: run transcribe-all --force-suspect and watch a suspect item re-transcribe and update its outcome in status. |
-| S07 | Additional Source Support | high | S06 | ⬜ | After this: run download on a YouTube URL, then transcribe-all, and see the artifact appear in status alongside Twitch items. |
+| S06 | Retry And Operational Hardening | medium | — | ✅ | After this: run transcribe-all --force-suspect and watch a suspect item re-transcribe and update its outcome in status. |
+| S07 | Additional Source Support | high | — | ⬜ | After this: run download on a YouTube URL, then transcribe-all, and see the artifact appear in status alongside Twitch items. |

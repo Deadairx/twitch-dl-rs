@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-04-07T04:25:42.912Z",
+  "exported_at": "2026-04-07T04:46:00.346Z",
   "milestones": [
     {
       "id": "M001",
@@ -312,14 +312,14 @@
       "milestone_id": "M002-z48awz",
       "id": "S06",
       "title": "Retry And Operational Hardening",
-      "status": "pending",
+      "status": "complete",
       "risk": "medium",
       "depends": [],
       "demo": "After this: run transcribe-all --force-suspect and watch a suspect item re-transcribe and update its outcome in status.",
       "created_at": "2026-04-06T07:19:16.646Z",
-      "completed_at": null,
-      "full_summary_md": "",
-      "full_uat_md": "",
+      "completed_at": "2026-04-07T04:36:07.862Z",
+      "full_summary_md": "---\nid: S06\nparent: M002-z48awz\nmilestone: M002-z48awz\nprovides:\n  - Retry path for suspect transcriptions without re-download via --force-suspect flag\n  - Blocking file locking on status.json writes to prevent concurrent corruption\n  - Composable flag design (--force-suspect + --video-id for targeted re-retry)\nrequires:\n  - slice: S01\n    provides: ProcessStatus schema with transcription_outcome field and artifact structure\n  - slice: S04\n    provides: --video-id filtering infrastructure composing with new --force-suspect flag\naffects:\n  - S07\nkey_files:\n  - src/cli.rs\n  - src/main.rs\n  - src/artifact.rs\n  - src/lib.rs\n  - Cargo.toml\nkey_decisions:\n  - D027\npatterns_established:\n  - Filter predicates at handler level (not CLI level) enable composable flag stacking\n  - Blocking locks via RAII (fs4) avoid manual unlock() ceremony and release-on-drop safety\n  - ProcessStatus.transcribed=false guard skips override check for suspect items without code duplication\nobservability_surfaces:\n  - CLI help text shows --force-suspect flag with clear description\n  - Suspect items appear in status output with transcription_outcome=\"suspect\" before retry\n  - After --force-suspect run, status.json outcome field updates (completed, suspect, or failed)\ndrill_down_paths:\n  - .gsd/milestones/M002-z48awz/slices/S06/tasks/T01-SUMMARY.md\n  - .gsd/milestones/M002-z48awz/slices/S06/tasks/T02-SUMMARY.md\nduration: \"\"\nverification_result: passed\ncompleted_at: 2026-04-07T04:36:07.866Z\nblocker_discovered: false\n---\n\n# S06: Retry And Operational Hardening\n\n**Added --force-suspect flag for retrying suspect transcriptions and implemented blocking file locking on status.json writes to prevent concurrent corruption.**\n\n## What Happened\n\nS06 closes two critical operational gaps: retry path for suspect transcriptions and concurrent-write safety for status.json. With --force-suspect, operators can re-run transcription on items that produced low-confidence outputs without re-downloading. With fs4-based blocking locks on writes, parallel download-all and transcribe-all invocations no longer corrupt artifact state. Both features reuse existing infrastructure (filter predicates, ProcessStatus schema) and follow established patterns (handler-level filtering, RAII locking). T01 added the --force-suspect flag to transcribe-all following the established pattern for boolean CLI flags, with a filter predicate that includes suspect items when force_suspect=true. Suspect items have transcribed=false, so the existing reuse guard evaluates false and doesn't block re-transcription—no parallel code path needed. T02 implemented fs4-based blocking exclusive locks on all write_status() calls via RAII, preventing concurrent writes from different processes (download-all and transcribe-all running in parallel) from corrupting artifact state. All 65 tests pass (33 lib + 32 bin) including new unit tests for filter predicate and concurrent write safety.\n\n## Verification\n\ncargo build succeeds with no errors. cargo test passes all 65 tests (33 lib + 32 bin). test_force_suspect_filter_predicate verifies filter logic with normal pending, suspect, and completed items in both force_suspect=true and force_suspect=false modes. test_concurrent_write_status_no_corruption spawns two threads writing different ProcessStatus values to same artifact dir; both complete without panic and final file is valid JSON. CLI help text shows --force-suspect flag with description. fs4 v0.13.1 present in Cargo.lock. No API changes to public functions; backward compatible.\n\n## Requirements Advanced\n\nNone.\n\n## Requirements Validated\n\n- R012 — S06 adds file locking to write_status() preventing concurrent corruption. Parallel download-all and transcribe-all now safely serialize writes via blocking fs4 lock, validating the continuity requirement that interrupted work resumes without state corruption.\n\n## New Requirements Surfaced\n\nNone.\n\n## Requirements Invalidated or Re-scoped\n\nNone.\n\n## Deviations\n\nNone.\n\n## Known Limitations\n\nfs4's lock_exclusive() is blocking with no timeout. If a process crashes while holding the lock, the next invocation may hang indefinitely. Mitigation: macOS flock is released automatically by OS on process death, so hang is only possible in rare uninterruptible sleep scenarios. No explicit monitoring of lock acquisition times is implemented, but microsecond-scale lock contention is expected and acceptable.\n\n## Follow-ups\n\nNone.\n\n## Files Created/Modified\n\n- `src/cli.rs` — Added --force-suspect flag to TranscribeAll variant with clap ArgAction::SetTrue\n- `src/main.rs` — Updated transcribe_all() to accept force_suspect parameter and apply new filter predicate logic\n- `src/artifact.rs` — Wrapped write_status() with fs4 blocking exclusive lock on status.lock file\n- `src/lib.rs` — Added unit test for filter predicate logic and concurrent write safety test\n- `Cargo.toml` — Added fs4 v0.13 dependency with sync feature\n- `Cargo.lock` — Updated with fs4 v0.13.1 and transitive dependencies\n",
+      "full_uat_md": "# S06: Retry And Operational Hardening — UAT\n\n**Milestone:** M002-z48awz\n**Written:** 2026-04-07T04:36:07.867Z\n\n# S06: UAT — Retry And Operational Hardening\n\n**Objective:** Verify that `--force-suspect` enables operator-driven retry of suspect transcriptions and that concurrent writes to status.json do not corrupt artifact state.\n\n**Prerequisites:**\n- Working `vod-pipeline` binary built from source\n- Test artifact directories with artifacts in various states\n- Empty temporary directory for new test artifacts\n\n---\n\n## Test Suite 1: Force-Suspect Flag on Transcribe-All\n\n### TC1.1: Help text displays --force-suspect flag\n\n**Setup:** None (binary already built)\n\n**Steps:**\n1. Run: `cargo run --quiet -- transcribe-all --help 2>/dev/null | grep -A1 force-suspect`\n\n**Expected Outcome:**\n```\n      --force-suspect              Re-transcribe artifacts that previously resulted in suspect transcriptions\n```\n\n**Verification:** Flag is visible with human-readable description.\n\n---\n\n### TC1.2: Suspect item is re-transcribed when --force-suspect is passed\n\n**Setup:**\n1. Create test artifact with suspect status (transcribed=false, outcome=\"suspect\")\n2. Place minimal audio file at artifact path\n\n**Steps:**\n1. Run force-suspect transcription\n2. Verify transcription completed and status.json is updated\n\n**Expected Outcome:**\n- Suspect item was re-transcribed (not skipped); status.json reflects new outcome\n\n---\n\n### TC1.3: Suspect item is skipped when --force-suspect is NOT passed\n\n**Setup:** Same artifact as TC1.2\n\n**Steps:**\n1. Run transcribe-all without --force-suspect flag\n\n**Expected Outcome:**\n- Output: \"No artifacts pending transcription.\"\n\n**Verification:** Suspect item excluded from run without flag.\n\n---\n\n### TC1.4: --force-suspect composes with --video-id for targeted retry\n\n**Setup:** Multiple suspect artifacts\n\n**Steps:**\n1. Run: `transcribe-all --force-suspect --video-id <specific-id>`\n\n**Expected Outcome:**\n- Only specified artifact re-transcribed\n- Other suspect artifacts unchanged\n\n---\n\n## Test Suite 2: File Locking and Concurrent Write Safety\n\n### TC2.1: Concurrent writes do not corrupt status.json\n\n**Steps:**\n1. Spawn two transcribe-all processes writing to same artifact directory\n2. Verify both complete without panic\n3. Verify status.json is valid JSON\n\n**Expected Outcome:**\n- Lock serializes writes; no corruption\n\n**Verification:** file deserializes successfully\n\n---\n\n### TC2.2: Lock file exists and is reused\n\n**Steps:**\n1. Run transcribe-all\n2. Check for status.lock alongside status.json\n\n**Expected Outcome:**\n- status.lock file exists and is reused across invocations\n\n---\n\n### TC2.3: Single-process operation unaffected\n\n**Steps:**\n1. Run transcribe-all normally\n2. Validate status.json before and after\n\n**Expected Outcome:**\n- Lock is transparent; no UX impact\n\n---\n\n## Test Suite 3: Integration\n\n### TC3.1: Status shows updated outcome after force-suspect retry\n\n**Steps:**\n1. Note suspect item in status output\n2. Run --force-suspect retry\n3. Verify status shows new outcome (completed, suspect, or failed)\n\n**Expected Outcome:**\n- Status correctly reflects retry result\n\n---\n\n### TC3.2: Download and transcribe run concurrently without corruption\n\n**Steps:**\n1. Launch download-all and transcribe-all in parallel\n2. Verify all status.json files are valid JSON\n\n**Expected Outcome:**\n- Concurrent writes safely serialize via lock\n\n---\n\n## Edge Cases\n\n### EC1: --force-suspect with no suspect items\n**Expected:** \"No artifacts pending transcription.\" (exit 0)\n\n### EC2: --force-suspect --video-id with wrong ID  \n**Expected:** Error message \"video ID X not found\" (exit 1)\n\n### EC3: Stale lock file from prior crash\n**Expected:** Lock reused successfully; no cleanup needed\n\n---\n\n## Summary\n\nAll test cases verify --force-suspect retry works correctly, file locking prevents concurrent corruption, and integration points function as expected.\n",
       "goal": "Add `--force-suspect` to `transcribe-all` so suspect transcriptions can be retried without re-downloading, and add blocking file locking to `status.json` writes so parallel `download-all` and `transcribe-all` invocations do not corrupt artifact state.",
       "success_criteria": "- `cargo test` passes (31 existing + new tests for force-suspect filtering and concurrent write safety)\n- `cargo build` succeeds clean\n- `transcribe-all --force-suspect` includes suspect items in the transcription run; without the flag, suspect items are still skipped\n- `transcribe-all --force-suspect --video-id <id>` composes correctly (only the named suspect item is retried)\n- After force-retry, `status.json` reflects the new outcome (`completed`, `suspect`, or `failed`)\n- All `write_status` calls acquire a blocking exclusive lock on `status.lock` before writing; no API change to callers\n- `status.lock` file is created alongside `status.json` in any artifact directory that has been written",
       "proof_level": "contract — unit tests verify filter predicate logic and concurrent write safety; no live Twitch session required",
@@ -334,19 +334,17 @@
       "title": "Additional Source Support",
       "status": "pending",
       "risk": "high",
-      "depends": [
-        "S06"
-      ],
+      "depends": [],
       "demo": "After this: run download on a YouTube URL, then transcribe-all, and see the artifact appear in status alongside Twitch items.",
       "created_at": "2026-04-06T07:19:16.646Z",
       "completed_at": null,
       "full_summary_md": "",
       "full_uat_md": "",
-      "goal": "Add YouTube as a second supported source via yt-dlp subprocess. Preserve the same durable artifact model. Keep source-specific intake isolated from downstream stages.",
-      "success_criteria": "A YouTube URL can be passed to download and produces a valid artifact directory with audio file, metadata.json, and status.json. transcribe-all picks it up and transcribes it. Twitch intake is unaffected.",
-      "proof_level": "integration test against a real YouTube URL",
-      "integration_closure": "YouTube download produces artifacts compatible with transcribe_artifact; status displays YouTube artifacts alongside Twitch ones",
-      "observability_impact": "status CHANNEL column shows youtube or channel name from metadata",
+      "goal": "Add YouTube as a second download source: route `download <url>` through yt-dlp when the hostname is youtube.com or youtu.be, produce an artifact with identical layout to Twitch artifacts, and make that artifact visible to `status` and `transcribe-all` without any source-specific treatment downstream.",
+      "success_criteria": "`cargo build` succeeds. `cargo test` passes (all existing tests plus new ones for date normalization, not-found error, and the widened artifact discovery). Running `vod-pipeline download <youtube-url>` produces `<output-root>/<youtube-id>/audio.m4a`, `metadata.json`, `status.json`, and `source_url.txt`. `vod-pipeline status` shows the YouTube artifact in the table alongside any Twitch artifacts. `vod-pipeline transcribe-all` picks up the YouTube artifact.",
+      "proof_level": "integration — requires yt-dlp subprocess, real artifact filesystem writes, and downstream command verification",
+      "integration_closure": "Upstream: `src/artifact.rs` (prepare_artifact_dir, write_source_url, write_metadata, write_status, existing_artifact_ids), `src/main.rs` (download_vod entry point), `src/twitch.rs` (existing Twitch path unchanged). New wiring: hostname-based URL routing at top of download_vod; `src/ytdlp.rs` module registered in `src/lib.rs`; `ArtifactMetadata::from_ytdlp` in `artifact.rs`. After this slice: the milestone's full end-to-end flow (YouTube URL → artifact → transcription → status) is demonstrable.",
+      "observability_impact": "yt-dlp subprocess errors (not found, download failure) surface as returned errors that print to stderr via existing error-propagation paths. The `status` command shows YouTube artifacts with the same STAGE/OUTCOME columns as Twitch artifacts. `metadata.json` carries `channel` and `uploaded_at` sourced from yt-dlp JSON output.",
       "sequence": 0,
       "replan_triggered_at": null
     }
@@ -1226,6 +1224,114 @@
       "observability_impact": "",
       "full_plan_md": "",
       "sequence": 0
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "slice_id": "S07",
+      "id": "T01",
+      "title": "Replaced all-digit directory check with status.json presence check in artifact discovery, enabling YouTube IDs",
+      "status": "complete",
+      "one_liner": "Replaced all-digit directory check with status.json presence check in artifact discovery, enabling YouTube IDs",
+      "narrative": "Changed existing_artifact_ids() in src/artifact.rs to recognize any subdirectory containing status.json as a valid artifact, instead of requiring all-digit names. This enables YouTube artifacts with alphanumeric IDs (e.g., jNQXAC9IVRw) to be discovered alongside Twitch artifacts by scan_artifact_statuses, show_status, and transcribe-all. Updated test_scan_queue_dedup_with_artifact to add status.json to the 300/ test artifact so the test's dedup-verification intent still holds under the new rule. All 65 tests pass.",
+      "verification_result": "Ran `cargo test` which executed 33 lib tests + 32 bin tests, all passing. Specifically verified test_scan_queue_dedup_with_artifact passes with the updated 300/ artifact setup containing status.json. The implementation is backward-compatible: all existing Twitch artifacts have had status.json since S01 normalization.",
+      "duration": "",
+      "completed_at": "2026-04-07T04:46:00.323Z",
+      "blocker_discovered": false,
+      "deviations": "None.",
+      "known_issues": "None.",
+      "key_files": [
+        "src/artifact.rs"
+      ],
+      "key_decisions": [],
+      "full_summary_md": "---\nid: T01\nparent: S07\nmilestone: M002-z48awz\nkey_files:\n  - src/artifact.rs\nkey_decisions:\n  - (none)\nduration: \nverification_result: passed\ncompleted_at: 2026-04-07T04:46:00.321Z\nblocker_discovered: false\n---\n\n# T01: Replaced all-digit directory check with status.json presence check in artifact discovery, enabling YouTube IDs\n\n**Replaced all-digit directory check with status.json presence check in artifact discovery, enabling YouTube IDs**\n\n## What Happened\n\nChanged existing_artifact_ids() in src/artifact.rs to recognize any subdirectory containing status.json as a valid artifact, instead of requiring all-digit names. This enables YouTube artifacts with alphanumeric IDs (e.g., jNQXAC9IVRw) to be discovered alongside Twitch artifacts by scan_artifact_statuses, show_status, and transcribe-all. Updated test_scan_queue_dedup_with_artifact to add status.json to the 300/ test artifact so the test's dedup-verification intent still holds under the new rule. All 65 tests pass.\n\n## Verification\n\nRan `cargo test` which executed 33 lib tests + 32 bin tests, all passing. Specifically verified test_scan_queue_dedup_with_artifact passes with the updated 300/ artifact setup containing status.json. The implementation is backward-compatible: all existing Twitch artifacts have had status.json since S01 normalization.\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `cargo test` | 0 | ✅ pass | 10ms |\n| 2 | `cargo test test_scan_queue_dedup_with_artifact` | 0 | ✅ pass | 80ms |\n\n## Deviations\n\nNone.\n\n## Known Issues\n\nNone.\n\n## Files Created/Modified\n\n- `src/artifact.rs`\n",
+      "description": "The `existing_artifact_ids()` function in `src/artifact.rs` currently rejects any directory whose name is not all-ASCII digits. YouTube video IDs are 11-character alphanumeric strings (e.g., `jNQXAC9IVRw`) — this filter makes YouTube artifacts invisible to `scan_artifact_statuses`, `show_status`, and `transcribe-all`. Replace the all-digit check with a `status.json` presence check: any subdirectory that contains `status.json` is a valid artifact. This is the de-facto artifact contract since S01's normalization and is backward-compatible with all Twitch artifacts. Also update the affected unit test (`test_scan_queue_dedup_with_artifact`) which creates artifact dir `300/` without a `status.json`; under the new rule, `300/` won't appear in results. Fix: add `status.json` to the `300/` setup so the test's dedup-verification intent still holds.",
+      "estimate": "30m",
+      "files": [
+        "src/artifact.rs"
+      ],
+      "verify": "cargo test 2>&1 | tail -5",
+      "inputs": [
+        "`src/artifact.rs`"
+      ],
+      "expected_output": [
+        "`src/artifact.rs`"
+      ],
+      "observability_impact": "",
+      "full_plan_md": "",
+      "sequence": 0
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "slice_id": "S07",
+      "id": "T02",
+      "title": "Implement src/ytdlp.rs with two-pass yt-dlp invocation and add from_ytdlp to ArtifactMetadata",
+      "status": "pending",
+      "one_liner": "",
+      "narrative": "",
+      "verification_result": "",
+      "duration": "",
+      "completed_at": null,
+      "blocker_discovered": false,
+      "deviations": "",
+      "known_issues": "",
+      "key_files": [],
+      "key_decisions": [],
+      "full_summary_md": "",
+      "description": "Create `src/ytdlp.rs` containing: (1) `YtDlpMetadata` struct with fields `id: String`, `title: String`, `channel: String`, `uploaded_at: String`; (2) `pub fn download_youtube(url: &str, output_path: &Path) -> Result<YtDlpMetadata, Box<dyn std::error::Error>>` using two-pass invocation. Pass 1: `yt-dlp --dump-json --skip-download <url>` — parse stdout as JSON, extract `id`, `title`, `channel` (prefer the `channel` field, fall back to `uploader`), and `upload_date`. Normalize `upload_date` from YYYYMMDD to YYYY-MM-DD. Pass 2: `yt-dlp -x --audio-format m4a --no-part -o <output_path> <url>` — download audio to the specified path. If `yt-dlp` is not found in PATH (i.e., `std::io::ErrorKind::NotFound` from `Command::new`), return a clear error: `\"yt-dlp not found; install with: brew install yt-dlp\"`. Also register the module in `src/lib.rs` with `pub mod ytdlp;`. Finally, add `ArtifactMetadata::from_ytdlp(video_id: &str, source_url: &str, output_file: &Path, meta: &YtDlpMetadata) -> Result<Self, std::io::Error>` to `src/artifact.rs` — same schema as `from_download` but with `stream_name: None`, `selected_bandwidth: None`, `selected_resolution: None`, `selected_codecs: None`, `is_audio_only: true`, `used_auth_token: false`. Write unit tests in `src/ytdlp.rs` for: date normalization (`20050424` → `2005-04-24`), and the not-found error message containing `brew install yt-dlp`.",
+      "estimate": "1h",
+      "files": [
+        "src/ytdlp.rs",
+        "src/lib.rs",
+        "src/artifact.rs"
+      ],
+      "verify": "cargo test 2>&1 | tail -10",
+      "inputs": [
+        "`src/artifact.rs`",
+        "`src/lib.rs`"
+      ],
+      "expected_output": [
+        "`src/ytdlp.rs`",
+        "`src/lib.rs`",
+        "`src/artifact.rs`"
+      ],
+      "observability_impact": "yt-dlp subprocess errors (not found, non-zero exit, malformed JSON) return descriptive error strings that propagate to the caller and are printed to stderr by main.rs's error handling path.",
+      "full_plan_md": "",
+      "sequence": 0
+    },
+    {
+      "milestone_id": "M002-z48awz",
+      "slice_id": "S07",
+      "id": "T03",
+      "title": "Wire YouTube URL routing into download_vod and produce a complete artifact",
+      "status": "pending",
+      "one_liner": "",
+      "narrative": "",
+      "verification_result": "",
+      "duration": "",
+      "completed_at": null,
+      "blocker_discovered": false,
+      "deviations": "",
+      "known_issues": "",
+      "key_files": [],
+      "key_decisions": [],
+      "full_summary_md": "",
+      "description": "Add hostname-based URL routing to `download_vod` in `src/main.rs`. At the very top of `download_vod`, before calling `twitch::extract_video_id`, parse the URL hostname using the already-imported `url` crate. If the host contains `youtube.com` or `youtu.be`, call a new async helper `download_youtube_vod(video_link, output_root)` and return its result. Otherwise, fall through to the existing Twitch path unchanged. Implement `download_youtube_vod(url: &str, output_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>>` as an async fn in the same file: (1) call `ytdlp::download_youtube(url, &audio_path)` where `audio_path` is a temporary path (use a temp file or the final artifact path — see note below); (2) extract `video_id` from `meta.id`; (3) build `artifact_dir = output_root.join(&video_id)`; (4) call `artifact::prepare_artifact_dir(&artifact_dir)`; (5) call `artifact::write_source_url(&artifact_dir, url)`; (6) move/verify `audio.m4a` is at `artifact_dir/audio.m4a` (yt-dlp was told to write to this path directly); (7) call `artifact::ArtifactMetadata::from_ytdlp(&video_id, url, &artifact_dir.join(\"audio.m4a\"), &meta)`; (8) call `artifact::write_metadata(&artifact_dir, &metadata)`; (9) write `ProcessStatus` with `downloaded: true` via `artifact::write_status`. Note on output path: pass `artifact_dir.join(\"audio.m4a\")` to `download_youtube` — yt-dlp will write directly there. The `artifact_dir` must be created via `prepare_artifact_dir` BEFORE calling `download_youtube` so the target directory exists. Adjust the order in `download_youtube_vod` accordingly: create dir first, then call download. `cargo build` must succeed and `cargo test` must pass. Verify end-to-end: `vod-pipeline download https://www.youtube.com/watch?v=jNQXAC9IVRw` should create `<output-root>/jNQXAC9IVRw/` with `audio.m4a`, `metadata.json`, `status.json`, `source_url.txt`.",
+      "estimate": "45m",
+      "files": [
+        "src/main.rs"
+      ],
+      "verify": "cargo build 2>&1 | tail -5 && cargo test 2>&1 | tail -5",
+      "inputs": [
+        "`src/main.rs`",
+        "`src/ytdlp.rs`",
+        "`src/artifact.rs`"
+      ],
+      "expected_output": [
+        "`src/main.rs`"
+      ],
+      "observability_impact": "YouTube download errors (yt-dlp not found, network failure, format unavailable) propagate through the standard error chain and print to stderr. The resulting artifact directory contains `status.json` with `downloaded: true`, making the item visible in `vod-pipeline status`.",
+      "full_plan_md": "",
+      "sequence": 0
     }
   ],
   "decisions": [
@@ -1537,6 +1643,54 @@
       "decision": "Choice of file locking mechanism for write_status() mutual exclusion",
       "choice": "Use fs4 crate (v0.13) with blocking exclusive locks via fs4::fs_std::FileExt",
       "rationale": "fs4 provides cross-platform, OS-level advisory file locking (POSIX fcntl on Unix, LockFileEx on Windows). Blocking exclusive locks are simpler than reader-writer locks for status.json writes since all callers serialize updates and last-writer-wins is acceptable behavior. RAII semantics (lock drops automatically at scope end) prevent accidental unlock misses. Avoids complexity of std::sync::Mutex on the shared status struct itself, which would require defensive locking everywhere ProcessStatus is accessed.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 27,
+      "id": "D027",
+      "when_context": "",
+      "scope": "library",
+      "decision": "File locking mechanism for status.json concurrent write protection",
+      "choice": "fs4 crate v0.13 with exclusive lock_exclusive() blocking method",
+      "rationale": "fs4 is actively maintained, provides portable cross-platform file locking (macOS, Linux, Windows), uses OS-level flock/LockFile, and integrates cleanly via RAII. Alternative file-lock crate required manual unlock() calls and add complexity. fs4's blocking lock_exclusive() matches the requirement: writer waits without error or warning, no try-lock fallback.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 28,
+      "id": "D028",
+      "when_context": "M002-z48awz/S07 planning",
+      "scope": "M002-z48awz/S07",
+      "decision": "yt-dlp invocation strategy for YouTube download",
+      "choice": "Two-pass: metadata first with `--dump-json --skip-download`, then download with `-x --audio-format m4a -o <path> --no-part`",
+      "rationale": "Two-pass gives clean JSON parsing from stdout (no progress output mixed in) and a known deterministic output filename. Single-pass mixing `--print-json` with download output is fragile because yt-dlp progress lines can interleave with the JSON blob. Two-pass is slightly slower but far more reliable.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 29,
+      "id": "D029",
+      "when_context": "M002-z48awz/S07 planning",
+      "scope": "M002-z48awz/S07",
+      "decision": "yt-dlp audio format flag for YouTube downloads",
+      "choice": "`-x --audio-format m4a` (post-processing via ffmpeg)",
+      "rationale": "More reliable across all videos than `-f bestaudio[ext=m4a]` (format selection). Many YouTube videos do not have a native m4a audio stream; format selection would silently fall back to webm/opus which `hear` does not accept. Post-processing via ffmpeg ensures the output is always m4a. ffmpeg is already a required dependency for Twitch downloads.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 30,
+      "id": "D030",
+      "when_context": "M002-z48awz/S07 planning",
+      "scope": "M002-z48awz/S07",
+      "decision": "Artifact discovery strategy in `existing_artifact_ids()`",
+      "choice": "Replace all-ASCII-digit filter with `status.json` presence check: any subdirectory containing `status.json` is a valid artifact",
+      "rationale": "YouTube video IDs are 11-character alphanumeric strings (e.g., `jNQXAC9IVRw`) — the all-digit filter rejects them entirely, making YouTube artifacts invisible to `status` and `transcribe-all`. The `status.json` presence check is the de-facto artifact contract (all artifact dirs have had `status.json` since S01's normalization). `queues/` subdirectory has no `status.json`, so it won't pollute results. The fix is purely additive and backward-compatible with all existing Twitch artifacts. The test `test_scan_queue_dedup_with_artifact` must be updated: artifact dir `300/` has no `status.json` and will no longer appear in results; add `status.json` to `300/` to preserve the test's dedup-verification intent.",
       "revisable": "Yes",
       "made_by": "agent",
       "superseded_by": null
@@ -2092,6 +2246,28 @@
       "verdict": "✅ pass",
       "duration_ms": 10,
       "created_at": "2026-04-07T04:25:42.824Z"
+    },
+    {
+      "id": 51,
+      "task_id": "T01",
+      "slice_id": "S07",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo test",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 10,
+      "created_at": "2026-04-07T04:46:00.323Z"
+    },
+    {
+      "id": 52,
+      "task_id": "T01",
+      "slice_id": "S07",
+      "milestone_id": "M002-z48awz",
+      "command": "cargo test test_scan_queue_dedup_with_artifact",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 80,
+      "created_at": "2026-04-07T04:46:00.323Z"
     }
   ]
 }

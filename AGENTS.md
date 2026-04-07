@@ -20,3 +20,6 @@ Use this file as a fast routing map. Prefer linked docs for planning context and
 - If the task is about current runtime orchestration, start in `src/main.rs`.
 
 - Do not treat `.gsd/` as the default planning entrypoint unless explicitly asked; root docs are the intended agent-facing planning surface.
+
+## GSD workarounds
+Before calling `gsd_complete_slice`: Generate the JSON first, check it against jq, make any adjustments to make it valid, and then send it to gsd_complete_slice once you're sure it's valid

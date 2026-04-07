@@ -130,10 +130,11 @@ pub fn existing_artifact_ids(output_root: &Path) -> Result<Vec<String>, std::io:
     for entry in fs::read_dir(output_root)? {
         let entry = entry?;
         if entry.file_type()?.is_dir() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if name.chars().all(|char| char.is_ascii_digit()) {
-                ids.push(name.to_string());
+            let dir_path = entry.path();
+            // A valid artifact is any subdirectory containing status.json
+            if dir_path.join("status.json").exists() {
+                let name = entry.file_name();
+                ids.push(name.to_string_lossy().to_string());
             }
         }
     }
@@ -575,10 +576,12 @@ mod tests {
         let status_json = r#"{"schema_version":1,"video_id":"100","source_url":"https://www.twitch.tv/videos/100","media_file":"audio.m4a","transcript_file":null,"downloaded":true,"transcribed":false,"last_error":null,"updated_at_epoch_s":0}"#;
         fs::write(artifact_100.join("status.json"), status_json).unwrap();
 
-        // Setup: artifact dir 300/ with audio.m4a file but no status.json (pre-S01 bare download)
+        // Setup: artifact dir 300/ with audio.m4a file and status.json (pre-S01 bare download)
         let artifact_300 = dir.path().join("300");
         fs::create_dir_all(&artifact_300).unwrap();
         fs::write(artifact_300.join("audio.m4a"), "dummy audio").unwrap();
+        let status_json_300 = r#"{"schema_version":1,"video_id":"300","source_url":"https://www.twitch.tv/videos/300","media_file":"audio.m4a","transcript_file":null,"downloaded":true,"transcribed":false,"last_error":null,"updated_at_epoch_s":0}"#;
+        fs::write(artifact_300.join("status.json"), status_json_300).unwrap();
 
         // Assert: scan_queue_files returns 2 entries (IDs "100" and "200")
         let queue_results = scan_queue_files(dir.path()).unwrap();

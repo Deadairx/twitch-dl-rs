@@ -85,3 +85,21 @@ Append-only. Never edit or remove existing entries. Add a new entry to supersede
 **Gotcha:** Make sure the validation error message lists all valid values inline (not just "invalid filter"). This saves the operator from running help to understand what went wrong.
 
 ---
+
+### Schema guards prevent logic duplication in retry flows
+**Context:** S06 needed to enable retry of suspect transcriptions without adding override logic to `transcribe_artifact()`. The key insight: suspect items already have `transcribed=false` (set when transcription_outcome="suspect" is recorded in S03). The existing reuse guard—checking `srt_path.exists() && vtt_path.exists() && status.transcribed`—already evaluates to false for suspect items, so no code duplication was needed.
+**Pattern:** When designing retry mechanisms, leverage existing schema invariants. If retry items have a schema property that distinguishes them from completed items (like `transcribed=false`), re-use guards keying off that property. No new override logic needed.
+**Lesson:** Retry paths should be flag-driven in CLI (`--force-suspect`, `--force-failed`) but should not require parallel code paths in helpers. If the existing guard doesn't block retry items, retry is free. If it does, refactor the guard to be parameterized (e.g., `should_skip_reuse_guard()` function) rather than duplicating the entire transcription flow.
+**Gotcha:** Ensure idempotency: `transcribe_to_srt_and_vtt()` must clean stale output files at entry (not rely on overwrite), so repeated retry calls on same item don't accumulate corrupted transcripts.
+
+### Blocking locks via RAII are superior to manual unlock() ceremony
+**Context:** S06 chose fs4's `lock_exclusive()` + RAII over crates requiring manual `unlock()` calls. The rationale: RAII ensures lock is released even on error paths, panic, or early return.
+**Pattern:** When adding locks to critical sections, prefer Rust crates where the lock guard implements Drop. This guarantees release regardless of control flow. Avoid crates requiring manual unlock() or try-finally patterns.
+**Lesson:** Blocking locks (not try-lock) are acceptable for serializing concurrent writes to durable state files. The OS handles lock cleanup on process death, so deadlock risk is acceptable. The lock should not be per-file-access but held during the entire write operation (acquire → write → flush → release), ensuring atomicity from the operator's perspective (either write A happened, or write B happened, or B waited for A to finish).
+**Gotcha:** Verify the crate you choose actually provides blocking semantics (not try-lock with retry). fs4's `lock_exclusive()` blocks; some other crates default to non-blocking and require explicit wait loops. Read the crate docs carefully.
+
+### Concurrent write safety is a prerequisite for multi-source downloads
+**Context:** S06 completes concurrent-write safety (file locking on status.json writes) before S07 (Additional Source Support). S07 plans to add Twitch and YouTube downloaders, which may run download-all concurrently from different sources. Without S06's locking, concurrent writes from different downloaders would corrupt artifact state.
+**Pattern:** If your roadmap includes features that spawn concurrent writers (multi-source, multi-channel parallel downloads), ensure write safety is implemented before those features. Build serialization primitives first; parallelize later.
+**Lesson:** Concurrency safety is not a bug-fix or optimization pass—it's a prerequisite for multi-writer features. Plan it into slices ahead of features that require it. Early implementation (S06) before adoption (S07) ensures confidence and simplifies testing.
+
